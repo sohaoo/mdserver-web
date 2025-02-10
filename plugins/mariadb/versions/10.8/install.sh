@@ -1,5 +1,5 @@
 #!/bin/bash
-PATH=/bin:/sbin:/usr/bin:/usr/sbin:/usr/local/bin:/usr/local/sbin:~/bin
+PATH=/bin:/sbin:/usr/bin:/usr/sbin:/usr/local/bin:/usr/local/sbin:~/bin:/opt/homebrew/bin
 export PATH
 
 #https://dev.mysql.com/downloads/mysql/5.5.html#downloads
@@ -11,23 +11,14 @@ rootPath=$(dirname "$rootPath")
 serverPath=$(dirname "$rootPath")
 sysName=`uname`
 
-install_tmp=${rootPath}/tmp/mw_install.pl
 mariadbDir=${serverPath}/source/mariadb
 
-MY_VER=10.8.4
+MY_VER=10.8.7
 
 Install_app()
 {
 	mkdir -p ${mariadbDir}
-	echo '正在安装脚本文件...' > $install_tmp
-
-	if id mysql &> /dev/null ;then 
-	    echo "mysql UID is `id -u www`"
-	    echo "mysql Shell is `grep "^www:" /etc/passwd |cut -d':' -f7 `"
-	else
-	    groupadd mysql
-		useradd -g mysql mysql
-	fi
+	echo '正在安装脚本文件...'
 
 	if [ "$sysName" != "Darwin" ];then
 		mkdir -p /var/log/mariadb
@@ -52,17 +43,19 @@ Install_app()
 	    cpuCore="1"
 	fi
 
-	if [ "$cpuCore" -gt "1" ];then
+	if [ "$cpuCore" -gt "2" ];then
 		cpuCore=`echo "$cpuCore" | awk '{printf("%.f",($1)*0.8)}'`
+	else
+		cpuCore="1"
 	fi
 	# ----- cpu end ------
 
-	if [ ! -f ${mariadbDir}/mariadb-${MY_VER}.tar.gz ];then
-		wget --no-check-certificate -O ${mariadbDir}/mariadb-${MY_VER}.tar.gz --tries=3 https://mirrors.aliyun.com/mariadb/mariadb-${MY_VER}/source/mariadb-${MY_VER}.tar.gz
-	fi
+	# if [ ! -f ${mariadbDir}/mariadb-${MY_VER}.tar.gz ];then
+	# 	wget --no-check-certificate -O ${mariadbDir}/mariadb-${MY_VER}.tar.gz --tries=3 https://mirrors.aliyun.com/mariadb/mariadb-${MY_VER}/source/mariadb-${MY_VER}.tar.gz
+	# fi
 
-	if [ "$?" != "0" ];then
-		wget --no-check-certificate -O ${mariadbDir}/mariadb-${MY_VER}.tar.gz --tries=3 https://downloads.mariadb.org/interstitial/mariadb-${MY_VER}/source/mariadb-${MY_VER}.tar.gz
+	if [ ! -f ${mariadbDir}/mariadb-${MY_VER}.tar.gz ];then
+		wget --no-check-certificate -O ${mariadbDir}/mariadb-${MY_VER}.tar.gz --tries=3 https://archive.mariadb.org/mariadb-${MY_VER}/source/mariadb-${MY_VER}.tar.gz
 	fi
 
 	if [ ! -d ${mariadbDir}/mariadb-${MY_VER} ];then
@@ -90,20 +83,23 @@ Install_app()
 
 		if [ -d $serverPath/mariadb ];then
 			echo '10.8' > $serverPath/mariadb/version.pl
-			echo '安装完成' > $install_tmp
+			echo '安装完成'
 		else
-			# rm -rf ${mariadbDir}/mariadb-${MY_VER}
-			echo '安装失败' > $install_tmp
+			echo '安装失败'
 			echo 'install fail'>&2
 			exit 1
 		fi
+	fi
+
+	if [ -d ${mariadbDir}/mariadb-${MY_VER} ];then
+		rm -rf ${mariadbDir}/mariadb-${MY_VER}
 	fi
 }
 
 Uninstall_app()
 {
 	rm -rf $serverPath/mariadb
-	echo '卸载完成' > $install_tmp
+	echo '卸载完成'
 }
 
 action=$1

@@ -1,6 +1,6 @@
 #!/bin/bash
-PATH=/bin:/sbin:/usr/bin:/usr/sbin:/usr/local/bin:/usr/local/sbin:~/bin
-export PATH
+PATH=/bin:/sbin:/usr/bin:/usr/sbin:/usr/local/bin:/usr/local/sbin:~/bin:/opt/homebrew/bin
+export PATH=$PATH:/opt/homebrew/bin
 
 curPath=`pwd`
 rootPath=$(dirname "$curPath")
@@ -8,22 +8,36 @@ rootPath=$(dirname "$rootPath")
 serverPath=$(dirname "$rootPath")
 sourcePath=${serverPath}/source
 sysName=`uname`
-install_tmp=${rootPath}/tmp/mw_install.pl
-
-
+SYS_ARCH=`arch`
 
 version=5.2.17
 PHP_VER=52
 Install_php()
 {
 #------------------------ install start ------------------------------------#
-echo "安装php-${version} ..." > $install_tmp
+echo "安装php-${version} ..."
 mkdir -p $sourcePath/php
 mkdir -p $serverPath/php
 
-cd $serverPath/mdserver-web/plugins/php/lib && /bin/bash zlib.sh
+cd ${rootPath}/plugins/php/lib && /bin/bash zlib.sh
 
 if [ ! -d $sourcePath/php/php${PHP_VER} ];then
+	
+	# ----------------------------------------------------------------------- #
+	# 中国优化安装
+	cn=$(curl -fsSL -m 10 -s http://ipinfo.io/json | grep "\"country\": \"CN\"")
+	LOCAL_ADDR=common
+	if [ ! -z "$cn" ] || [ "$?" == "0" ] ;then
+		LOCAL_ADDR=cn
+	fi
+
+	if [ "$LOCAL_ADDR" == "cn" ];then
+		if [ ! -f $sourcePath/php/php-${version}.tar.xz ];then
+			wget --no-check-certificate -O $sourcePath/php/php-${version}.tar.xz https://mirrors.nju.edu.cn/php/php-${version}.tar.xz
+		fi
+	fi
+	# ----------------------------------------------------------------------- #
+
 	if [ ! -f $sourcePath/php/php-${version}.tar.gz ];then
 		wget --no-check-certificate -O $sourcePath/php/php-${version}.tar.gz https://museum.php.net/php5/php-${version}.tar.gz
 	fi
@@ -68,23 +82,19 @@ if [ -f $serverPath/php/${PHP_VER}/bin/php ];then
 	return
 fi
 
-OPTIONS=''
+OPTIONS='--without-iconv'
 if [ $sysName == 'Darwin' ]; then
-	OPTIONS='--without-iconv'
 	OPTIONS="${OPTIONS} --with-freetype-dir=${serverPath}/lib/freetype"
-	OPTIONS="${OPTIONS} --with-curl=${serverPath}/lib/curl"
-else
-	OPTIONS='--without-iconv'
-	# OPTIONS="--with-iconv=${serverPath}/lib/libiconv"
-	OPTIONS="${OPTIONS} --with-curl"
 fi
-
 
 IS_64BIT=`getconf LONG_BIT`
 if [ "$IS_64BIT" == "64" ];then
 	OPTIONS="${OPTIONS} --with-libdir=lib64"
 fi
 
+if [ "${SYS_ARCH}" == "aarch64" ];then
+	OPTIONS="$OPTIONS --build=aarch64-unknown-linux-gnu --host=aarch64-unknown-linux-gnu"
+fi
 
 if [ ! -d $serverPath/php/${PHP_VER} ];then
 
@@ -94,8 +104,6 @@ if [ ! -d $serverPath/php/${PHP_VER} ];then
 	--prefix=$serverPath/php/${PHP_VER} \
 	--exec-prefix=$serverPath/php/${PHP_VER} \
 	--with-config-file-path=$serverPath/php/${PHP_VER}/etc \
-	--with-zlib-dir=$serverPath/lib/zlib \
-	--enable-zip \
 	--enable-xml \
 	--enable-shared \
 	--with-mysql=mysqlnd \
@@ -106,7 +114,8 @@ if [ ! -d $serverPath/php/${PHP_VER} ];then
 	$OPTIONS \
 	--enable-fastcgi \
 	--enable-fpm
-	make ZEND_EXTRA_LIBS='-liconv' && make install && make clean
+	# ZEND_EXTRA_LIBS='-liconv'
+	make && make install && make clean
 fi
 
 if [ "$?" != "0" ];then
@@ -131,7 +140,6 @@ fi
 # ps -ef|grep php/52 |grep -v grep |awk '{print $2}'|xargs kill
 # /www/server/php/init.d/php52 start
 # /www/server/php/52/sbin/php-fpm start
-# cd /www/server/mdserver-web && python3 /www/server/mdserver-web/plugins/php/index.py start 52
 mkdir -p $serverPath/php/${PHP_VER}/var/log
 mkdir -p $serverPath/php/${PHP_VER}/var/run
 
@@ -144,7 +152,7 @@ Uninstall_php()
 {
 	$serverPath/php/init.d/php${PHP_VER} stop
 	rm -rf $serverPath/php/${PHP_VER}
-	echo "uninstall php-${version} ..." > $install_tmp
+	echo "uninstall php-${version} ..."
 }
 
 action=${1}

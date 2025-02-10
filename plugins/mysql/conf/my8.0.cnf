@@ -8,8 +8,8 @@ default-character-set = UTF8MB4
 [mysqld]
 !include {$SERVER_APP_PATH}/etc/mode/classic.cnf
 
-sha256_password_private_key_path=mysql.pem
-sha256_password_public_key_path=mysql.pub
+sha256_password_private_key_path={$SERVER_APP_PATH}/data/mysql.pem
+sha256_password_public_key_path={$SERVER_APP_PATH}/data/mysql.pub
 authentication_policy=mysql_native_password
 
 pid-file = {$SERVER_APP_PATH}/data/mysql.pid
@@ -20,6 +20,7 @@ basedir = {$SERVER_APP_PATH}
 datadir = {$SERVER_APP_PATH}/data
 log-error =  {$SERVER_APP_PATH}/data/error.log
 server-id	= {$SERVER_ID}
+#sql-mode=NO_ENGINE_SUBSTITUTION,STRICT_TRANS_TABLES
 
 default_storage_engine = InnoDB
 
@@ -40,14 +41,13 @@ max_connect_errors = 100
 open_files_limit = 2560
 max_allowed_packet = 128M
 
-skip_name_resolve = 1
+skip_name_resolve=1
 #skip-networking
 #skip-external-locking
 #loose-skip-innodb
 #skip-grant-tables
 
 log-bin=mysql-bin
-binlog_format=mixed
 slow_query_log=1
 slow-query-log-file={$SERVER_APP_PATH}/data/mysql-slow.log
 long_query_time=10
@@ -59,7 +59,13 @@ binlog_expire_logs_seconds=2592000
 relay-log=mdserver
 relay-log-index=mdserver
 
+#多主设置
+#auto_increment_offset=2
+#auto_increment_increment=2
+
 #master
+#sync_binlog=1
+
 #binlog-do-db
 binlog-ignore-db = test
 binlog-ignore-db = mysql
@@ -68,8 +74,10 @@ binlog-ignore-db = performance_schema
 
 #slave
 log_replica_updates = 1
-skip_replica_start = 1
+# Prevent replication from starting automatically with MySQL
+#skip_replica_start = 1
 #replicate-do-db
+replica_skip_errors=1062,1396
 replicate-ignore-db = information_schema
 replicate-ignore-db = performance_schema
 replicate-ignore-db = mysql
@@ -80,9 +88,10 @@ innodb_data_home_dir = {$SERVER_APP_PATH}/data
 innodb_data_file_path = ibdata1:10M:autoextend
 innodb_log_group_home_dir = {$SERVER_APP_PATH}/data
 innodb_buffer_pool_size = 16M
-innodb_log_file_size = 5M
+#innodb_log_file_size = 5M
+innodb_redo_log_capacity=10485760
 innodb_log_buffer_size = 8M
-innodb_flush_log_at_trx_commit = 2
+innodb_flush_log_at_trx_commit = 1
 innodb_lock_wait_timeout = 120
 innodb_max_dirty_pages_pct = 90
 innodb_read_io_threads = 1

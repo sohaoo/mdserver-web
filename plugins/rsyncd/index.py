@@ -7,8 +7,13 @@ import json
 import re
 import sys
 
-sys.path.append(os.getcwd() + "/class/core")
-import mw
+web_dir = os.getcwd() + "/web"
+if os.path.exists(web_dir):
+    sys.path.append(web_dir)
+    os.chdir(web_dir)
+
+import core.mw as mw
+
 
 app_debug = False
 if mw.isAppleSystem():
@@ -96,7 +101,7 @@ def appAuthPwd(name):
 def getLog():
     conf_path = appConf()
     conf = mw.readFile(conf_path)
-    rep = 'log file\s*=\s*(.*)'
+    rep = r'log file\s*=\s*(.*)'
     tmp = re.search(rep, conf)
     if not tmp:
         return ''
@@ -106,11 +111,27 @@ def getLog():
 def getLsyncdLog():
     path = getServerDir() + "/lsyncd.conf"
     conf = mw.readFile(path)
-    rep = 'logfile\s*=\s*\"(.*)\"'
+    rep = r'logfile\s*=\s*\"(.*)\"'
     tmp = re.search(rep, conf)
     if not tmp:
         return ''
     return tmp.groups()[0]
+
+
+def __release_port(port):
+    from collections import namedtuple
+    try:
+        from utils.firewall import Firewall as MwFirewall
+        MwFirewall.instance().addAcceptPort(port, 'RSYNC同步', 'port')
+        return port
+    except Exception as e:
+        return "Release failed {}".format(e)
+
+
+def openPort():
+    for i in ["873"]:
+        __release_port(i)
+    return True
 
 
 def initDReceive():
@@ -135,11 +156,13 @@ def initDReceive():
         mw.writeFile(file_bin, content)
         mw.execShell('chmod +x ' + file_bin)
 
+    lock_file = getServerDir() + "/installed_rsyncd.pl"
     # systemd
     systemDir = mw.systemdCfgDir()
     systemService = systemDir + '/rsyncd.service'
     systemServiceTpl = getPluginDir() + '/init.d/rsyncd.service.tpl'
-    if os.path.exists(systemDir) and not os.path.exists(systemService):
+    if not os.path.exists(lock_file):
+
         rsync_bin = mw.execShell('which rsync')[0].strip()
         if rsync_bin == '':
             print('rsync missing!')
@@ -151,6 +174,9 @@ def initDReceive():
         se = se.replace('{$RSYNC_BIN}', rsync_bin)
         mw.writeFile(systemService, se)
         mw.execShell('systemctl daemon-reload')
+
+        mw.writeFile(lock_file, "ok")
+        openPort()
 
     rlog = getLog()
     if os.path.exists(rlog):
@@ -199,7 +225,7 @@ def initDSend():
         mw.writeFile(systemService, content)
         mw.execShell('systemctl daemon-reload')
 
-    mw.writeFile(lock_file, "ok")
+        mw.writeFile(lock_file, "ok")
 
     lslog = getLsyncdLog()
     if os.path.exists(lslog):
@@ -255,21 +281,33 @@ def rsyncOp(method):
     return 'fail'
 
 
-def start():
-    return rsyncOp('start')
+def lsyncdOp(method):
+    if not mw.isAppleSystem():
+        data = mw.execShell('systemctl ' + method + ' lsyncd')
+        if data[1] == '':
+            return 'ok'
+        return 'fail'
+    return 'fail'
 
+def start():
+    status = rsyncOp('start')
+    lsyncdOp('start')
+    return status
 
 def stop():
-    return rsyncOp('stop')
-
+    status =  rsyncOp('stop')
+    lsyncdOp('stop')
+    return status
 
 def restart():
-    return rsyncOp('restart')
-
+    status = rsyncOp('restart')
+    lsyncdOp('restart')
+    return status
 
 def reload():
-    return rsyncOp('reload')
-
+    status = rsyncOp('reload')
+    lsyncdOp('reload')
+    return status
 
 def initdStatus():
     if mw.isAppleSystem():
@@ -311,7 +349,7 @@ def getRecListData():
     path = appConf()
     content = mw.readFile(path)
 
-    flist = re.findall("\[(.*)\]", content)
+    flist = re.findall("\\[(.*)\\]", content)
 
     flist_len = len(flist)
     ret_list = []
@@ -321,15 +359,15 @@ def getRecListData():
         n = i + 1
         reg = ''
         if n == flist_len:
-            reg = '\[' + flist[i] + '\](.*)\[?'
+            reg = r'\[' + flist[i] + r'\](.*)\[?'
         else:
-            reg = '\[' + flist[i] + '\](.*)\[' + flist[n] + '\]'
+            reg = r'\[' + flist[i] + r'\](.*)\[' + flist[n] + r'\]'
 
         t1 = re.search(reg, content, re.S)
         if t1:
             args = t1.groups()[0]
             # print('args start', args, 'args_end')
-            t2 = re.findall('\s*(.*)\s*\=\s*?(.*)?', args, re.M | re.I)
+            t2 = re.findall(r'\s*(.*)\s*\=\s*?(.*)?', args, re.M | re.I)
             for i in range(len(t2)):
                 tmp[t2[i][0].strip()] = t2[i][1].strip()
         ret_list.append(tmp)
@@ -359,6 +397,18 @@ def addRec():
     args_pwd = args['pwd']
     args_path = args['path']
     args_ps = args['ps']
+
+    if not mw.isAppleSystem():
+        if os.path.exists(args_path):
+            import utils.file as utils_file
+            info = utils_file.getAccess(args_path)
+            file_chown = info['chown']
+            if file_chown != 'www':
+                return mw.returnJson(False, '建议手动执行命令: chown -R www:www '+ args_path)
+        else:
+            os.system("mkdir -p " + args_path + " &")
+            os.system("chown -R  www:www " + args_path + " &")
+            os.system("chmod -R 755 " + args_path + " &")
 
     delRecBy(args_name)
 
@@ -431,13 +481,12 @@ def delRecBy(name):
                     next_name = reclist[x + 1]['name']
         reg = ''
         if is_end:
-            reg = '\[' + name + '\]\s*(.*)'
+            reg = r'\[' + name + r'\]\s*(.*)'
         else:
-            reg = '\[' + name + '\]\s*(.*)\s*\[' + next_name + '\]'
+            reg = r'\\[' + name + r'\]\s*(.*)\s*\[' + next_name + r'\]'
 
         conre = re.search(reg,  content, re.S)
-        content = content.replace(
-            "[" + name + "]\n" + conre.groups()[0], '')
+        content = content.replace("[" + name + "]\n" + conre.groups()[0], '')
         mw.writeFile(path, content)
     except Exception as e:
         return False
@@ -503,9 +552,13 @@ def cmdRecCmd():
 
 # ----------------------------- rsyncdSend start -------------------------
 
-
 def lsyncdReload():
-    mw.execShell('systemctl reload lsyncd')
+    data = mw.execShell(
+        "ps -ef|grep lsyncd |grep -v grep | grep -v python | awk '{print $2}'")
+    if data[0] == '':
+        mw.execShell('systemctl start lsyncd')
+    else:
+        mw.execShell('systemctl restart lsyncd')
 
 
 def makeLsyncdConf(data):
@@ -681,16 +734,27 @@ def lsyncdAdd():
     import base64
 
     args = getArgs()
-    data = checkArgs(args, ['ip', 'conn_type', 'path',
-                            'secret_key', 'delay', 'period'])
+    data = checkArgs(args, ['ip', 'conn_type', 'path', 'delay', 'period', 'bwlimit'])
     if not data[0]:
         return data[1]
 
     ip = args['ip']
     path = args['path']
 
+    if not mw.isAppleSystem():
+        if os.path.exists(path):
+            import utils.file as utils_file
+            info = utils_file.getAccess(path)
+            file_chown = info['chown']
+            if file_chown != 'www':
+                return mw.returnJson(False, '建议手动执行命令: chown -R www:www '+ args_path)
+        else:
+            os.system("mkdir -p " + path + " &")
+            os.system("chown -R  www:www " + path + " &")
+            os.system("chmod -R 755 " + path + " &")
+
     conn_type = args['conn_type']
-    secret_key = args['secret_key']
+
     delete = args['delete']
     realtime = args['realtime']
     delay = args['delay']
@@ -716,6 +780,12 @@ def lsyncdAdd():
     }
 
     if conn_type == "key":
+
+        secret_key_check = checkArgs(args, ['secret_key'])
+        if not secret_key_check[0]:
+            return secret_key_check[1]
+
+        secret_key = args['secret_key']
         try:
             m = base64.b64decode(secret_key)
             m = json.loads(m)
@@ -725,12 +795,13 @@ def lsyncdAdd():
         except Exception as e:
             return mw.returnJson(False, "接收密钥格式错误!")
     else:
-        data = checkArgs(args, ['uname'])
+        data = checkArgs(args, ['sname', 'password'])
         if not data[0]:
             return data[1]
 
-        info['name'] = args['uname']
-        info['password'] = args['uname']
+        info['name'] = args['sname']
+        info['password'] = args['password']
+        info['port'] = args['port']
 
     rsync = {
         'bwlimit': bwlimit,
@@ -742,20 +813,20 @@ def lsyncdAdd():
 
     info['rsync'] = rsync
 
-    if not 'exclude' in info:
-        info["exclude"] = [
-            "/**.upload.tmp",
-            "**/*.log",
-            "**/*.tmp",
-            "**/*.temp",
-            ".git",
-            ".gitignore",
-            ".user.ini",
-        ]
-
     data = getDefaultConf()
+
     slist = data['send']["list"]
     res = lsyncdListFindName(slist, info['name'])
+
+    if not 'exclude' in info:
+        if res[0]:
+            info["exclude"] = slist[res[1]]['exclude']
+        else:
+            info["exclude"] = [
+                "/**.upload.tmp", "**/*.log", "**/*.tmp",
+                "**/*.temp", ".git", ".gitignore", ".user.ini",
+            ]
+
     if res[0]:
         list_index = res[1]
         slist[list_index] = info

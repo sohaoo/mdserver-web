@@ -1,6 +1,6 @@
 #!/bin/bash
-PATH=/bin:/sbin:/usr/bin:/usr/sbin:/usr/local/bin:/usr/local/sbin:~/bin
-export PATH
+PATH=/bin:/sbin:/usr/bin:/usr/sbin:/usr/local/bin:/usr/local/sbin:~/bin:/opt/homebrew/bin
+export PATH=$PATH:/opt/homebrew/bin
 
 curPath=`pwd`
 
@@ -10,26 +10,26 @@ rootPath=$(dirname "$rootPath")
 rootPath=$(dirname "$rootPath")
 serverPath=$(dirname "$rootPath")
 sourcePath=${serverPath}/source/php
-
+SYS_ARCH=`arch`
 actionType=$1
 version=$2
 
 LIBNAME=swoole
-LIBV=4.8.10
+LIBV=5.1.6
 
 if [ "$version" -lt "70" ];then
 	LIBV=1.10.1
-elif [ "$version" == "71" ];then
-	LIBV=4.5.2
 elif [ "$version" == "70" ];then
 	LIBV=4.3.0
+elif [ "$version" == "71" ];then
+	LIBV=4.5.2
+elif [ "$version" == "72" ] || [ "$version" == "73" ] || [ "$version" == "74" ];then
+	LIBV=4.8.10
+elif [ "$version" -gt "74" ];then
+	LIBV=5.1.6
 else
-	echo '72+'
-fi
-
-if [ "$version" -eq "82" ];then
-	echo "not need"
-	exit 1
+	echo 'other?'
+	exit 0
 fi
 
 LIB_PATH_NAME=lib/php
@@ -60,19 +60,30 @@ Install_lib()
 		php_lib=$sourcePath/php_lib
 		mkdir -p $php_lib
 
-		if [ ! -f  $php_lib/${LIBNAME}-${LIBV}.tgz ];then
-			wget -O $php_lib/${LIBNAME}-${LIBV}.tgz http://pecl.php.net/get/${LIBNAME}-${LIBV}.tgz
-			cd $php_lib
-			tar xvf ${LIBNAME}-${LIBV}.tgz
+		cd ${rootPath}/plugins/php/lib && /bin/bash openssl_11.sh
+
+		if [ ! -d $php_lib/${LIBNAME}-${LIBV} ];then
+			if [ ! -f $php_lib/${LIBNAME}-${LIBV}.tgz ];then
+				wget --no-check-certificate -O $php_lib/${LIBNAME}-${LIBV}.tgz http://pecl.php.net/get/${LIBNAME}-${LIBV}.tgz
+			fi
+			cd $php_lib && tar xvf ${LIBNAME}-${LIBV}.tgz
 		fi
 		cd $php_lib/${LIBNAME}-${LIBV}
+
+		OPTIONS=""
+		if [ "${SYS_ARCH}" == "aarch64" ] && [ "$version" -lt "56" ];then
+			OPTIONS="$OPTIONS --build=aarch64-unknown-linux-gnu --host=aarch64-unknown-linux-gnu"
+		fi
 		
 		$serverPath/php/$version/bin/phpize
 		./configure --with-php-config=$serverPath/php/$version/bin/php-config \
+		$OPTIONS \
 		--enable-openssl \
-		--with-openssl-dir=$serverPath/lib/openssl \
+		--with-openssl-dir=$serverPath/lib/openssl11 \
 		--enable-sockets
 		make clean && make && make install && make clean
+
+		cd $php_lib && rm -rf $php_lib/${LIBNAME}-${LIBV}
 	fi
 	
 	while [[ ! -f "$extFile" ]];
@@ -93,7 +104,7 @@ Install_lib()
 	echo "[${LIBNAME}]" >> $serverPath/php/$version/etc/php.ini
 	echo "extension=${LIBNAME}.so" >> $serverPath/php/$version/etc/php.ini
 	
-	bash ${rootPath}/plugins/php/versions/lib.sh $version restart
+	cd  ${curPath} && bash ${rootPath}/plugins/php/versions/lib.sh $version restart
 	echo '==========================================================='
 	echo 'successful!'
 }
@@ -116,7 +127,7 @@ Uninstall_lib()
 	sed -i $BAK "/${LIBNAME}/d" $serverPath/php/$version/etc/php.ini
 		
 	rm -f $extFile
-	bash ${rootPath}/plugins/php/versions/lib.sh $version restart
+	cd  ${curPath} && bash ${rootPath}/plugins/php/versions/lib.sh $version restart
 	echo '==============================================='
 	echo 'successful!'
 }

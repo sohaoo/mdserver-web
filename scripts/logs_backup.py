@@ -13,12 +13,13 @@ if sys.platform != 'darwin':
     os.chdir('/www/server/mdserver-web')
 
 
-chdir = os.getcwd()
-sys.path.append(chdir + '/class/core')
-reload(sys)
-sys.setdefaultencoding('utf-8')
+web_dir = os.getcwd() + "/web"
+if os.path.exists(web_dir):
+    sys.path.append(web_dir)
+    os.chdir(web_dir)
 
-import mw
+import core.mw as mw
+
 print('==================================================================')
 print('★[' + time.strftime("%Y/%m/%d %H:%M:%S") + ']，切割日志')
 print('==================================================================')
@@ -51,8 +52,10 @@ def split_logs(oldFileName, num):
 def split_all(save):
     sites = mw.M('sites').field('name').select()
     for site in sites:
-        oldFileName = logsPath + site['name'] + px
+        oldFileName = logsPath + '/' +site['name'] + px
         split_logs(oldFileName, save)
+        errOldFileName = logsPath + '/' + site['name'] + ".error.log"
+        split_logs(errOldFileName, save)
 
 if __name__ == '__main__':
     num = int(sys.argv[2])

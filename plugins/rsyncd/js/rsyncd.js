@@ -1,18 +1,8 @@
-function str2Obj(str){
-    var data = {};
-    kv = str.split('&');
-    for(i in kv){
-        v = kv[i].split('=');
-        data[v[0]] = v[1];
-    }
-    return data;
-}
-
 function rsPost(method,args,callback, title){
 
     var _args = null; 
     if (typeof(args) == 'string'){
-        _args = JSON.stringify(str2Obj(args));
+        _args = JSON.stringify(toArrayObject(args));
     } else {
         _args = JSON.stringify(args);
     }
@@ -94,6 +84,15 @@ function createSendTask(name = ''){
             period_minute_n = "selected";
         }
 
+        var bwlimit = "1024";
+        if ('rsync' in data){
+            bwlimit = data['rsync']['bwlimit'];
+        }
+
+        var delay = "3";
+        if ('delay' in data){
+            delay = data['delay'];
+        }
 
         var layerID = layer.open({
             type: 1,
@@ -156,9 +155,9 @@ function createSendTask(name = ''){
                 <div class='line'>\
                     <span class='tname'>限速</span>\
                     <div class='info-r c4'>\
-                        <input class='bt-input-text' type='number' name='bwlimit' min='0'  value='1024' style='width:100px' /> KB\
+                        <input class='bt-input-text' type='number' name='bwlimit' min='0'  value='"+bwlimit+"' style='width:100px' /> KB\
                         <span data-toggle='tooltip' data-placement='top' title='【限速】限制数据同步任务的速度，防止因同步数据导致带宽跑高' class='bt-ico-ask' style='cursor: pointer;'>?</span>\
-                        <span style='margin-left: 29px;margin-right: 10px;'>延迟</span><input class='bt-input-text' min='0' type='number' name='delay'  value='3' style='width:100px' /> 秒\
+                        <span style='margin-left: 29px;margin-right: 10px;'>延迟</span><input class='bt-input-text' min='0' type='number' name='delay'  value='"+delay+"' style='width:100px' /> 秒\
                         <span data-toggle='tooltip' data-placement='top' title='【延迟】在延迟时间周期内仅记录不同步，到达周期后一次性同步数据，以节省开销' class='bt-ico-ask' style='cursor: pointer;'>?</span>\
                     </div>\
                 </div>\
@@ -486,7 +485,7 @@ function lsyncdExclude(name){
 }
 
 function lsyncdConfLog(){
-    pluginStandAloneLogs("rsyncd","","lsyncd_conf_log");;
+    pluginRollingLogs("rsyncd","","lsyncd_conf_log");;
 }
 
 function lsyncdSend(){
@@ -502,7 +501,7 @@ function lsyncdSend(){
 
         con += '<div style="padding-top:1px;">\
                 <button class="btn btn-success btn-sm" onclick="createSendTask();">创建发送任务</button>\
-                <button class="btn btn-success btn-sm" onclick="lsyncdConfLog();">日志</button>\
+                <button class="btn btn-success btn-sm" onclick="lsyncdConfLog();">自动同步日志</button>\
             </div>';
 
         con += '<div class="divtable" style="margin-top:5px;"><table class="table table-hover" width="100%" cellspacing="0" cellpadding="0" border="0">';
@@ -537,12 +536,12 @@ function lsyncdSend(){
             con += '<tr>'+
                 '<td>' + list[i]['name']+'</td>' +
                 '<td><a class="btlink overflow_hide" style="width:40px;" onclick="openPath(\''+list[i]['path']+'\')">' + list[i]['path']+'</a></td>' +
-                '<td>' + list[i]['ip']+":"+"cc"+'</td>' +
+                '<td>' + list[i]['ip']+":"+list[i]['name']+'</td>' +
                 '<td>' + mode+'</td>' +
                 '<td>' + period +'</td>' +
                 '<td>\
                     <a class="btlink" onclick="lsyncdRun(\''+list[i]['name']+'\')">同步</a>\
-                    | <a class="btlink" onclick="lsyncdLog(\''+list[i]['name']+'\')">日志</a>\
+                    | <a class="btlink" onclick="lsyncdLog(\''+list[i]['name']+'\')">手动日志</a>\
                     | <a class="btlink" onclick="lsyncdExclude(\''+list[i]['name']+'\')">过滤器</a>\
                     | <a class="btlink" onclick="createSendTask(\''+list[i]['name']+'\')">编辑</a>\
                     | <a class="btlink" onclick="lsyncdDelete(\''+list[i]['name']+'\')">删除</a>\
@@ -572,7 +571,7 @@ function rsyncdConf(){
 }
 
 function rsyncdLog(){
-    pluginStandAloneLogs("rsyncd","","run_log");
+    pluginRollingLogs("rsyncd","","run_log");
 }
 
 
@@ -677,9 +676,13 @@ function addReceive(name = ""){
                 var loadT = layer.msg('正在获取...', { icon: 16, time: 0, shade: 0.3 });
                 rsPost('add_rec', args, function(data){
                     var rdata = $.parseJSON(data.data);
-                    layer.close(loadOpen);
-                    layer.msg(rdata.msg,{icon:rdata.status?1:2,time:2000,shade: [0.3, '#000']});
-                    setTimeout(function(){rsyncdReceive();},2000);
+                    if (rdata['status']){
+                        layer.close(loadOpen);
+                        layer.msg(rdata.msg,{icon:rdata.status?1:2,time:2000,shade: [0.3, '#000']});
+                        setTimeout(function(){rsyncdReceive();},2000); 
+                    } else {
+                        layer.msg(rdata.msg,{icon:rdata.status?1:2,time:10000,shade: [0.3, '#000']});
+                    }
                 });
             }
         });

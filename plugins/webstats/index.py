@@ -5,9 +5,14 @@ import io
 import os
 import time
 import json
+import re
 
-sys.path.append(os.getcwd() + "/class/core")
-import mw
+web_dir = os.getcwd() + "/web"
+if os.path.exists(web_dir):
+    sys.path.append(web_dir)
+    os.chdir(web_dir)
+
+import core.mw as mw
 
 
 app_debug = False
@@ -77,11 +82,23 @@ def status():
     return 'start'
 
 
-def loadLuaLogFile():
+def loadLuaFile(name):
     lua_dir = getServerDir() + "/lua"
-    lua_dst = lua_dir + "/webstats_log.lua"
+    lua_dst = lua_dir + "/" + name
 
-    lua_tpl = getPluginDir() + '/lua/webstats_log.lua'
+    if not os.path.exists(lua_dst):
+        lua_tpl = getPluginDir() + '/lua/' + name
+        content = mw.readFile(lua_tpl)
+        content = content.replace('{$SERVER_APP}', getServerDir())
+        content = content.replace('{$ROOT_PATH}', mw.getServerDir())
+        mw.writeFile(lua_dst, content)
+
+
+def loadLuaFileReload(name):
+    lua_dir = getServerDir() + "/lua"
+    lua_dst = lua_dir + "/" + name
+
+    lua_tpl = getPluginDir() + '/lua/' + name
     content = mw.readFile(lua_tpl)
     content = content.replace('{$SERVER_APP}', getServerDir())
     content = content.replace('{$ROOT_PATH}', mw.getServerDir())
@@ -96,10 +113,27 @@ def loadConfigFile():
     content = json.loads(content)
 
     dst_conf_json = getServerDir() + "/lua/config.json"
-    mw.writeFile(dst_conf_json, json.dumps(content))
+    if not os.path.exists(dst_conf_json):
+        mw.writeFile(dst_conf_json, json.dumps(content))
 
-    dst_conf_lua = getServerDir() + "/lua/config.lua"
-    listToLuaFile(dst_conf_lua, content)
+    dst_conf_lua = getServerDir() + "/lua/webstats_config.lua"
+    if not os.path.exists(dst_conf_lua):
+        listToLuaFile(dst_conf_lua, content)
+
+
+# def loadConfigFileReload():
+#     -- 配置生活或可使用
+#     lua_dir = getServerDir() + "/lua"
+#     conf_tpl = getPluginDir() + "/conf/config.json"
+
+#     content = mw.readFile(conf_tpl)
+#     content = json.loads(content)
+
+#     dst_conf_json = getServerDir() + "/lua/config.json"
+#     mw.writeFile(dst_conf_json, json.dumps(content))
+
+#     dst_conf_lua = getServerDir() + "/lua/webstats_config.lua"
+#     listToLuaFile(dst_conf_lua, content)
 
 
 def loadLuaSiteFile():
@@ -125,9 +159,16 @@ def loadLuaSiteFile():
         ddata["default"] = "unset"
     else:
         ddata["default"] = dlist[0]
+
     mw.writeFile(default_json, json.dumps(ddata))
 
-    lua_site = lua_dir + "/sites.lua"
+    lua_site = lua_dir + "/webstats_sites.lua"
+
+    tmp = {
+        "name": "unset",
+        "domains": [],
+    }
+    content.append(tmp)
     listToLuaFile(lua_site, content)
 
 
@@ -154,8 +195,10 @@ def pSqliteDb(dbname='web_logs', site_name='unset', name="logs"):
         conn = mw.M(dbname).dbPos(db_dir, name)
 
     conn.execute("PRAGMA synchronous = 0")
-    conn.execute("PRAGMA page_size = 4096")
+    conn.execute("PRAGMA cache_size = 8000")
+    conn.execute("PRAGMA page_size = 32768")
     conn.execute("PRAGMA journal_mode = wal")
+    conn.execute("PRAGMA journal_size_limit = 1073741824")
     return conn
 
 
@@ -197,6 +240,15 @@ def initDreplace():
         content = content.replace('{$ROOT_PATH}', mw.getServerDir())
         mw.writeFile(path, content)
 
+    # 已经安装的
+    al_config = getServerDir() + "/lua/config.json"
+    if os.path.exists(al_config):
+        tmp = json.loads(mw.readFile(al_config))
+        if tmp['global']['record_post_args'] or tmp['global']['record_get_403_args']:
+            openLuaNeedRequestBody()
+        else:
+            closeLuaNeedRequestBody()
+
     lua_dir = getServerDir() + "/lua"
     if not os.path.exists(lua_dir):
         mw.execShell('mkdir -p ' + lua_dir)
@@ -205,12 +257,26 @@ def initDreplace():
     if not os.path.exists(log_path):
         mw.execShell('mkdir -p ' + log_path)
 
-    loadLuaLogFile()
+    file_list = [
+        'webstats_common.lua',
+        'webstats_log.lua',
+    ]
+
+    for fl in file_list:
+        loadLuaFile(fl)
+
     loadConfigFile()
     loadLuaSiteFile()
     loadDebugLogFile()
 
+    if not mw.isAppleSystem():
+        mw.execShell("chown -R www:www " + getServerDir())
     return 'ok'
+
+
+def luaRestart():
+    mw.opWeb("stop")
+    mw.opWeb("start")
 
 
 def start():
@@ -219,31 +285,43 @@ def start():
     import tool_task
     tool_task.createBgTask()
 
-    if not mw.isAppleSystem():
-        mw.execShell("chown -R www:www " + getServerDir())
-
-    mw.restartWeb()
+    # issues:326
+    luaRestart()
     return 'ok'
 
 
 def stop():
     path = luaConf()
-    os.remove(path)
-    mw.restartWeb()
+    if os.path.exists(path):
+        os.remove(path)
+
+    import tool_task
+    tool_task.removeBgTask()
+
+    luaRestart()
     return 'ok'
 
 
 def restart():
     initDreplace()
+
+    luaRestart()
     return 'ok'
 
 
 def reload():
     initDreplace()
 
-    loadLuaLogFile()
+    file_list = [
+        'webstats_common.lua',
+        'webstats_log.lua',
+    ]
+    for fl in file_list:
+        loadLuaFileReload(fl)
+
     loadDebugLogFile()
-    mw.restartWeb()
+
+    luaRestart()
     return 'ok'
 
 
@@ -254,6 +332,22 @@ def getGlobalConf():
     return mw.returnJson(True, 'ok', content)
 
 
+def openLuaNeedRequestBody():
+    conf = luaConf()
+    content = mw.readFile(conf)
+    content = re.sub(r"lua_need_request_body (.*);",
+                     'lua_need_request_body on;', content)
+    mw.writeFile(conf, content)
+
+
+def closeLuaNeedRequestBody():
+    conf = luaConf()
+    content = mw.readFile(conf)
+    content = re.sub(r"lua_need_request_body (.*);",
+                     'lua_need_request_body off;', content)
+    mw.writeFile(conf, content)
+
+
 def setGlobalConf():
     args = getArgs()
 
@@ -261,13 +355,22 @@ def setGlobalConf():
     content = mw.readFile(conf)
     content = json.loads(content)
 
+    open_force_get_request_body = False
     for v in ['record_post_args', 'record_get_403_args']:
         data = checkArgs(args, [v])
         if data[0]:
             rval = False
             if args[v] == "true":
                 rval = True
+                open_force_get_request_body = True
+
             content['global'][v] = rval
+
+    # 开启强制获取日志配置
+    if open_force_get_request_body:
+        openLuaNeedRequestBody()
+    else:
+        closeLuaNeedRequestBody()
 
     for v in ['ip_top_num', 'uri_top_num', 'save_day']:
         data = checkArgs(args, [v])
@@ -294,9 +397,9 @@ def setGlobalConf():
         content['global']['exclude_url'] = exclude_url_val
 
     mw.writeFile(conf, json.dumps(content))
-    conf_lua = getServerDir() + "/lua/config.lua"
+    conf_lua = getServerDir() + "/lua/webstats_config.lua"
     listToLuaFile(conf_lua, content)
-    mw.restartWeb()
+    luaRestart()
     return mw.returnJson(True, '设置成功')
 
 
@@ -368,7 +471,7 @@ def setSiteConf():
     for v in ['cdn_headers', 'exclude_extension', 'exclude_status', 'exclude_ip']:
         data = checkArgs(args, [v])
         if data[0]:
-            site_conf[v] = args[v].split("\\n")
+            site_conf[v] = args[v].strip().split("\\n")
 
     data = checkArgs(args, ['exclude_url'])
     if data[0]:
@@ -387,9 +490,9 @@ def setSiteConf():
     content[domain] = site_conf
 
     mw.writeFile(conf, json.dumps(content))
-    conf_lua = getServerDir() + "/lua/config.lua"
+    conf_lua = getServerDir() + "/lua/webstats_config.lua"
     listToLuaFile(conf_lua, content)
-    mw.restartWeb()
+    luaRestart()
     return mw.returnJson(True, '设置成功')
 
 
@@ -555,17 +658,19 @@ def getLogsRealtimeInfo():
     '''
     import datetime
     args = getArgs()
-    check = checkArgs(args, ['site', 'type'])
+    check = checkArgs(args, ['site', 'type','second'])
     if not check[0]:
         return check[1]
 
     domain = args['site']
     dtype = args['type']
+    second = int(args['second'])
+
 
     conn = pSqliteDb('web_logs', domain)
     timeInt = time.mktime(datetime.datetime.now().timetuple())
 
-    conn = conn.where("time>=?", (int(timeInt) - 10,))
+    conn = conn.where("time>=?", (int(timeInt) - second,))
 
     field = 'time,body_length'
     field_sum = toSumField(field.replace("time,", ""))
@@ -603,8 +708,8 @@ def attacHistoryLogHack(conn, site_name, query_date='today'):
 
 def getLogsList():
     args = getArgs()
-    check = checkArgs(args, ['page', 'page_size',
-                             'site', 'method', 'status_code', 'spider_type', 'query_date', 'search_uri'])
+    check = checkArgs(args, ['page', 'page_size','site', 'method', 
+            'status_code', 'spider_type', 'request_time', 'query_date', 'search_uri'])
     if not check[0]:
         return check[1]
 
@@ -614,24 +719,53 @@ def getLogsList():
     tojs = args['tojs']
     method = args['method']
     status_code = args['status_code']
+    request_time = args['request_time']
+    request_size = args['request_size']
     spider_type = args['spider_type']
     query_date = args['query_date']
     search_uri = args['search_uri']
+    referer = args['referer']
+    ip = args['ip']
     setDefaultSite(domain)
 
     limit = str(page_size) + ' offset ' + str(page_size * (page - 1))
     conn = pSqliteDb('web_logs', domain)
 
-    field = 'time,ip,domain,server_name,method,protocol,status_code,request_headers,ip_list,client_port,body_length,user_agent,referer,request_time,uri,body_length'
+    field = 'time,ip,domain,server_name,method,is_spider,protocol,status_code,request_headers,ip_list,client_port,body_length,user_agent,referer,request_time,uri,body_length'
     condition = ''
     conn = conn.field(field)
     conn = conn.where("1=1", ())
+
+    if referer != 'all':
+        if referer == '1':
+            conn = conn.andWhere("referer <> ? ", ('',))
+        elif referer == '-1':
+            conn = conn.andWhere("referer is null ", ())
+
+    if ip != '':
+        conn = conn.andWhere("ip=?", (ip,))
 
     if method != "all":
         conn = conn.andWhere("method=?", (method,))
 
     if status_code != "all":
         conn = conn.andWhere("status_code=?", (status_code,))
+
+    if request_time != "all":
+        request_time_s = request_time.strip().split('-')
+        # print(request_time_s)
+        if len(request_time_s) == 2:
+            conn = conn.andWhere("request_time>=? and request_time<?", (request_time_s[0],request_time_s[1],))
+        if len(request_time_s) == 1:
+            conn = conn.andWhere("request_time>=?", (request_time,))
+
+    if request_size != "all":
+        request_size_s = request_size.strip().split('-')
+        # print(int(request_size_s[0])*1024)
+        if len(request_size_s) == 2:
+            conn = conn.andWhere("body_length>=? and body_length<?", (int(request_size_s[0])*1024,int(request_size_s[1])*1024,))
+        if len(request_size_s) == 1:
+            conn = conn.andWhere("body_length>=?", (int(request_size_s[0])*1024,))
 
     if spider_type == "normal":
         pass
@@ -661,7 +795,24 @@ def getLogsList():
 
     attacHistoryLogHack(conn, domain, query_date)
 
+    conn.changeTextFactoryToBytes()
     clist = conn.limit(limit).order('time desc').inquiry()
+
+    for x in range(len(clist)):
+        req_line = clist[x]
+        for cx in req_line:
+            v = req_line[cx]
+            if type(v) == bytes:
+                try:
+                    clist[x][cx] = v.decode('utf-8')
+                except Exception as e:
+                    v = str(v)
+                    v = v.replace("b'",'').strip("'")
+                    clist[x][cx] = v
+            else:
+                clist[x][cx] = v
+
+    # print(clist)
     count_key = "count(*) as num"
     count = conn.field(count_key).limit('').order('').inquiry()
     # print(count)
@@ -1101,7 +1252,6 @@ def getUriStatList():
         conn = conn.where("day>? and flow>?", (0, 0,))
 
     clist = conn.order("flow desc").limit("50").inquiry(origin_field)
-    # print(clist)
 
     total_req = 0
     total_flow = 0
@@ -1248,6 +1398,10 @@ def installPreInspection():
         return "请先安装OpenResty"
     return 'ok'
 
+def uninstallPreInspection():
+    stop()
+    return 'ok'
+
 if __name__ == "__main__":
     func = sys.argv[1]
     if func == 'status':
@@ -1262,6 +1416,8 @@ if __name__ == "__main__":
         print(reload())
     elif func == 'install_pre_inspection':
         print(installPreInspection())
+    elif func == 'uninstall_pre_inspection':
+        print(uninstallPreInspection())
     elif func == 'run_info':
         print(runInfo())
     elif func == 'get_global_conf':

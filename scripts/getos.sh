@@ -1,5 +1,5 @@
 #!/bin/bash
-PATH=/bin:/sbin:/usr/bin:/usr/sbin:/usr/local/bin:/usr/local/sbin:~/bin
+PATH=/bin:/sbin:/usr/bin:/usr/sbin:/usr/local/bin:/usr/local/sbin:~/bin:/opt/homebrew/bin
 export PATH
 
 #获取信息和版本
@@ -10,6 +10,8 @@ elif grep -Eq "openSUSE" /etc/*-release; then
     OSNAME='opensuse'
 elif grep -Eq "FreeBSD" /etc/*-release; then
     OSNAME='freebsd'
+elif grep -Eqi "EulerOS" /etc/*-release || grep -Eqi "openEuler" /etc/*-release; then
+    OSNAME='euler'
 elif grep -Eqi "Arch" /etc/issue || grep -Eq "Arch" /etc/*-release; then
     OSNAME='arch'
 elif grep -Eqi "CentOS" /etc/issue || grep -Eq "CentOS" /etc/*-release; then
@@ -38,4 +40,10 @@ else
     OSNAME='unknow'
 fi
 
-echo "$OSNAME" > /www/server/mdserver-web/data/osname.pl
+if [ -d /www/server/mdserver-web ];then
+    echo "$OSNAME" > /www/server/mdserver-web/data/osname.pl
+fi
+
+if [ "$OSNAME" == "macos" ];then
+    echo "$OSNAME"
+fi

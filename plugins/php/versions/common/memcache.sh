@@ -1,6 +1,6 @@
 #!/bin/bash
-PATH=/bin:/sbin:/usr/bin:/usr/sbin:/usr/local/bin:/usr/local/sbin:~/bin
-export PATH
+PATH=/bin:/sbin:/usr/bin:/usr/sbin:/usr/local/bin:/usr/local/sbin:~/bin:/opt/homebrew/bin
+export PATH=$PATH:/opt/homebrew/bin
 
 curPath=`pwd`
 
@@ -10,17 +10,20 @@ rootPath=$(dirname "$rootPath")
 rootPath=$(dirname "$rootPath")
 serverPath=$(dirname "$rootPath")
 sourcePath=${serverPath}/source/php
-
+SYS_ARCH=`arch`
 LIBNAME=memcache
 LIBV=2.2.7
 sysName=`uname`
 actionType=$1
 version=$2
 
-if [ "$version" -gt "56" ];then
-	echo "not need"
-	exit 1
-fi 
+if [ "$version" -gt "56" ] && [ "$version" -lt "80" ];then
+	LIBV=4.0.5.2
+fi
+
+if [ "$version" -gt "74" ];then
+	LIBV=8.0
+fi
 
 
 LIB_PATH_NAME=lib/php
@@ -49,14 +52,26 @@ Install_lib()
 		php_lib=$sourcePath/php_lib
 		mkdir -p $php_lib
 
-		wget -O $php_lib/${LIBNAME}-${LIBV}.tgz http://pecl.php.net/get/${LIBNAME}-${LIBV}.tgz
+		if [ ! -d $php_lib/${LIBNAME}-${LIBV} ];then
+			if [ ! -f $php_lib/${LIBNAME}-${LIBV}.tgz ];then
+				wget --no-check-certificate -O $php_lib/${LIBNAME}-${LIBV}.tgz http://pecl.php.net/get/${LIBNAME}-${LIBV}.tgz
+			fi
+			cd $php_lib && tar xvf ${LIBNAME}-${LIBV}.tgz
+		fi
+		cd $php_lib/${LIBNAME}-${LIBV}
 
-		cd $php_lib && tar xvf ${LIBNAME}-${LIBV}.tgz
-		cd ${LIBNAME}-${LIBV}
+		OPTIONS=""
+		if [ "${SYS_ARCH}" == "aarch64" ] && [ "$version" -lt "56" ];then
+			OPTIONS="$OPTIONS --build=aarch64-unknown-linux-gnu --host=aarch64-unknown-linux-gnu"
+		fi
+
 		$serverPath/php/$version/bin/phpize
-		./configure --with-php-config=$serverPath/php/$version/bin/php-config --enable-memcache --with-zlib-dir
+		./configure --with-php-config=$serverPath/php/$version/bin/php-config \
+		$OPTIONS \
+		--enable-memcache --with-zlib-dir
 		make clean && make && make install && make clean
 
+		cd $php_lib && rm -rf $php_lib/${LIBNAME}-${LIBV}
 	fi
 	
 	if [ ! -f "$extFile" ];then
@@ -68,7 +83,7 @@ Install_lib()
 	echo "extension=${LIBNAME}.so" >> $serverPath/php/$version/etc/php.ini
 	
 
-	bash ${rootPath}/plugins/php/versions/lib.sh $version restart
+	cd  ${curPath} && bash ${rootPath}/plugins/php/versions/lib.sh $version restart
 	echo '==========================================================='
 	echo 'successful!'
 }
@@ -91,7 +106,7 @@ Uninstall_lib()
 	sed -i $BAK "/${LIBNAME}/d" $serverPath/php/$version/etc/php.ini
 		
 	rm -f $extFile
-	bash ${rootPath}/plugins/php/versions/lib.sh $version restart
+	cd  ${curPath} && bash ${rootPath}/plugins/php/versions/lib.sh $version restart
 	echo '==============================================='
 	echo 'successful!'
 }

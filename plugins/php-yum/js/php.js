@@ -1,14 +1,3 @@
-
-function str2Obj(str){
-    var data = {};
-    kv = str.split('&');
-    for(i in kv){
-        v = kv[i].split('=');
-        data[v[0]] = v[1];
-    }
-    return data;
-}
-
 function phpPost(method, version, args,callback){
     var loadT = layer.msg('正在获取...', { icon: 16, time: 0, shade: 0.3 });
 
@@ -18,7 +7,7 @@ function phpPost(method, version, args,callback){
     req_data['version'] = version;
  
     if (typeof(args) == 'string'){
-        req_data['args'] = JSON.stringify(str2Obj(args));
+        req_data['args'] = JSON.stringify(toArrayObject(args));
     } else {
         req_data['args'] = JSON.stringify(args);
     }
@@ -37,16 +26,17 @@ function phpPost(method, version, args,callback){
     },'json'); 
 }
 
-function phpPostCallbak(method, version, args,callback){
+function phpPostCallback(method, version, args,callback){
     var loadT = layer.msg('正在获取...', { icon: 16, time: 0, shade: 0.3 });
 
     var req_data = {};
     req_data['name'] = 'php-yum';
     req_data['func'] = method;
+    req_data['script']='index_php_yum';
     args['version'] = version;
  
     if (typeof(args) == 'string'){
-        req_data['args'] = JSON.stringify(str2Obj(args));
+        req_data['args'] = JSON.stringify(toArrayObject(args));
     } else {
         req_data['args'] = JSON.stringify(args);
     }
@@ -130,33 +120,31 @@ function submitConf(version) {
 
 
 
-//php上传限制
-function phpUploadLimitReq(version){
-    phpPost('get_limit_conf', version, '', function(ret_data){
-        var rdata = $.parseJSON(ret_data.data);
-        phpUploadLimit(version,rdata['max']);
-    });
-}
-
-function phpUploadLimit(version,max){
-    var LimitCon = '<p class="conf_p"><input class="phpUploadLimit bt-input-text mr5" type="number" value="'+
-    max+'" name="max">MB<button class="btn btn-success btn-sm" onclick="setPHPMaxSize(\''+
-    version+'\')" style="margin-left:20px">保存</button></p>';
-    $(".soft-man-con").html(LimitCon);
-}
-
-
 //php超时限制
-function phpTimeLimitReq(version){
+function phpCommonFunc(version){
     phpPost('get_limit_conf', version, '', function(ret_data){
         var rdata = $.parseJSON(ret_data.data);
-        phpTimeLimit(version,rdata['maxTime']);
-    });
-}
+        var con = '<p class="conf_p">\
+            <span>超时限制</span>\
+            <input class="phpTimeLimit bt-input-text mr5" type="number" value="' + rdata['maxTime'] + '">, 秒\
+            <button class="btn btn-success btn-sm" onclick="setPHPMaxTime(\'' + version + '\')" style="margin-left:20px">保存</button>\
+            </p>';
 
-function phpTimeLimit(version, max) {
-    var LimitCon = '<p class="conf_p"><input class="phpTimeLimit bt-input-text mr5" type="number" value="' + max + '">秒<button class="btn btn-success btn-sm" onclick="setPHPMaxTime(\'' + version + '\')" style="margin-left:20px">保存</button></p>';
-    $(".soft-man-con").html(LimitCon);
+        con += '<p class="conf_p">\
+            <span>上传限制</span>\
+            <input class="phpUploadLimit bt-input-text mr5" type="number" value="' + rdata['max']+'" name="max">,MB\
+            <button class="btn btn-success btn-sm" onclick="setPHPMaxSize(\''+ version+'\')" style="margin-left:20px">保存</button>\
+        </p>';
+
+        con += '<hr/><p class="conf_p" style="text-align:center;">\
+            <button class="btn btn-default btn-sm" onclick="getPHPInfo(\'' + version + '\')">查看phpinfo()</button>\
+            <button class="btn btn-default btn-sm" onclick="phpPreload(\'' + version + '\')">预加载脚本</button>\
+            <button class="btn btn-default btn-sm" onclick="phpOpcacheBlacklist(\'' + version + '\')">OPCACHE黑名单</button>\
+            <button class="btn btn-default btn-sm" onclick="phpFpmRoot(\'' + version + '\')">PHP-FPM(global)</button>\
+        </p>';
+
+        $(".soft-man-con").html(con);
+    });
 }
 
 //设置超时限制
@@ -164,7 +152,10 @@ function setPHPMaxTime(version) {
     var max = $(".phpTimeLimit").val();
     phpPost('set_max_time',version,{'time':max},function(data){
         var rdata = $.parseJSON(data.data);
-        layer.msg(rdata.msg, { icon: rdata.status ? 1 : 2 });
+        showMsg(rdata.msg,function(){
+            phpCommonFunc(version);
+        },{ icon: rdata.status ? 1 : 2 });
+
     });
 }
 //设置PHP上传限制
@@ -182,6 +173,24 @@ function setPHPMaxSize(version) {
     });
 }
 
+function phpPreload(version){
+    phpPost('app_start',version,{},function(data){
+        onlineEditFile(0, data['data']);
+    });
+}
+
+function phpOpcacheBlacklist(version){
+    phpPost('opcache_blacklist_file',version,{},function(data){
+        onlineEditFile(0, data['data']);
+    });
+}
+
+function phpFpmRoot(version){
+    phpPost('get_fpm_file',version,{},function(data){
+        onlineEditFile(0, data['data']);
+    });
+}
+
 
 function getFpmConfig(version){
     phpPost('get_fpm_conf', version, {}, function(data){
@@ -194,8 +203,9 @@ function getFpmConfig(version){
             "<option value='3' " + (rdata.max_children == 100 ? 'selected' : '') + ">100并发</option>" +
             "<option value='4' " + (rdata.max_children == 200 ? 'selected' : '') + ">200并发</option>" +
             "<option value='5' " + (rdata.max_children == 300 ? 'selected' : '') + ">300并发</option>" +
-            "<option value='6' " + (rdata.max_children == 500 ? 'selected' : '') + ">500并发</option>"
-        var pms = [{ 'name': 'static', 'title': '静态' }, { 'name': 'dynamic', 'title': '动态' }];
+            "<option value='6' " + (rdata.max_children == 500 ? 'selected' : '') + ">500并发</option>" +
+            "<option value='6' " + (rdata.max_children == 2000 ? 'selected' : '') + ">2000并发</option>";
+        var pms = [{ 'name': 'static', 'title': '静态' }, { 'name': 'dynamic', 'title': '动态' },{ 'name': 'ondemand', 'title': '按需' }];
         var pmList = '';
         for (var i = 0; i < pms.length; i++) {
             pmList += '<option value="' + pms[i].name + '" ' + ((pms[i].name == rdata.pm) ? 'selected' : '') + '>' + pms[i].title + '</option>';
@@ -253,6 +263,12 @@ function getFpmConfig(version){
                     start_servers = 35;
                     min_spare_servers = 35;
                     max_spare_servers = 250;
+                    break;
+                case '7':
+                    max_children = 2000;
+                    start_servers = 40;
+                    min_spare_servers = 40;
+                    max_spare_servers = 255;
                     break;
             }
 
@@ -320,9 +336,18 @@ function getFpmStatus(version){
         }
 
         var rdata = tmp_data.data;
+        var php_fpm_status = '动态';
+        if (rdata['process manager'] == 'dynamic'){
+            php_fpm_status = '动态';
+        } else if(rdata['process manager'] == 'static'){
+            php_fpm_status = '静态';
+        } else if(rdata['process manager'] == 'ondemand'){
+            php_fpm_status = '按需';
+        }
+        
         var con = "<div style='height:420px;overflow:hidden;'><table class='table table-hover table-bordered GetPHPStatus' style='margin:0;padding:0'>\
                         <tr><th>应用池(pool)</th><td>" + rdata.pool + "</td></tr>\
-                        <tr><th>进程管理方式(process manager)</th><td>" + ((rdata['process manager'] == 'dynamic') ? '动态' : '静态') + "</td></tr>\
+                        <tr><th>进程管理方式(process manager)</th><td>" + php_fpm_status + "</td></tr>\
                         <tr><th>启动日期(start time)</th><td>" + rdata['start time'] + "</td></tr>\
                         <tr><th>请求数(accepted conn)</th><td>" + rdata['accepted conn'] + "</td></tr>\
                         <tr><th>请求队列(listen queue)</th><td>" + rdata['listen queue'] + "</td></tr>\
@@ -337,6 +362,147 @@ function getFpmStatus(version){
                      </table></div>";
         $(".soft-man-con").html(con);
         $(".GetPHPStatus td,.GetPHPStatus th").css("padding", "7px");
+    });
+}
+
+function getSessionConfig(version){
+    phpPost('get_session_conf', version, '', function(ret_data){
+        var rdata = $.parseJSON(ret_data.data);
+        if(!rdata.status){
+            layer.msg(rdata.msg, { icon: rdata.status ? 1 : 2 });
+            return;
+        }
+        var rdata = rdata.data;
+
+         var cacheList = "<option value='files' " + (rdata.save_handler == "files" ? 'selected' : '') + ">files</option>" +
+            "<option value='redis' " + (rdata.save_handler == "redis" ? 'selected' : '') + ">redis</option>" +
+            "<option value='memcache' " + (rdata.save_handler == "memcache" ? 'selected' : '') + ">memcache</option>" +
+            "<option value='memcached' " + (rdata.save_handler == "memcached" ? 'selected' : '') + ">memcached</option>";
+
+
+        var info = rdata.save_path.split(":");
+        var con = "<div class='conf_p'>" +
+            "<p class='line'><span class='span_tit'>存储模式：</span><select class='bt-input-text' name='save_handler' style='width:200px;'>" + cacheList + "</select></p>" +
+            "<p class='line'><span class='span_tit'>IP地址：</span><input class='bt-input-text' type='text' name='ip' style='width:200px;' value='"+ info[0] +"' /></p>" +
+            "<p class='line'><span class='span_tit'>端口：</span><input class='bt-input-text' type='text' name='port' style='width:200px;' value='"+rdata.port+"' /></p>" +
+            "<p class='line'><span class='span_tit'>密码：</span><input class='bt-input-text' type='text' name='passwd' style='width:200px;' value='"+rdata.passwd+"' /></p>" +
+            "<p class='line'><div class='mtb15' style='margin-left:100px;'><button class='btn btn-success btn-sm' onclick='setSessionConfig(\"" + version + "\",1)'>保存</button></div></p>" +
+            "</div>\
+            <ul class='help-info-text c7'>\
+                <li>若你的站点并发比较高，使用Redis，Memcache能有效提升PHP并发能力</li>\
+                <li>若调整Session模式后，网站访问异常，请切换回原来的模式</li>\
+                <li>切换Session模式会使在线的用户会话丢失，请在流量小的时候切换</li>\
+            </ul>\
+            <div id='session_clear' class='session_clear' style='border-top: #ccc 1px dashed;padding-top: 15px;margin-top: 15px;'>\
+            </div>\
+            </div>";
+
+        $(".soft-man-con").html(con);
+
+        if (rdata.save_handler == 'files'){
+            $('input[name="ip"]').attr('disabled','disabled');
+            $('input[name="port"]').attr('disabled','disabled');
+            $('input[name="passwd"]').attr('placeholder','如果没有密码留空');
+            $('input[name="passwd"]').attr('disabled','disabled');
+        }
+
+        // change event
+        $("select[name='save_handler']").change(function() {
+            var type = $(this).val();
+
+            var passwd = $('input[name="passwd"]').val();
+            if (passwd == ""){
+                $('input[name="passwd"]').attr('placeholder','如果没有密码留空');
+            }
+
+            var ip = $('input[name="ip"]').val();
+            if (ip == ""){
+                $('input[name="ip"]').val('127.0.0.1');
+            }
+
+            switch (type) {
+                case 'redis':
+                    var port = $('input[name="port"]').val();
+                    if (port == ""){
+                        $('input[name="port"]').val('6379');
+                    }
+                    $('input[name="ip"]').removeAttr('disabled');
+                    $('input[name="port"]').removeAttr('disabled');
+                    $('input[name="passwd"]').removeAttr('disabled');
+                    break;
+                case 'files':
+                    $('input[name="ip"]').val("").attr('disabled','disabled');
+                    $('input[name="port"]').val("").attr('disabled','disabled');
+                    $('input[name="passwd"]').val("").attr('disabled','disabled');
+                    break;
+                case 'memcache':
+                    var port = $('input[name="port"]').val();
+                    if (port == ""){
+                        $('input[name="port"]').val('11211');
+                    }
+                    $('input[name="ip"]').removeAttr('disabled');
+                    $('input[name="port"]').removeAttr('disabled');
+                    $('input[name="passwd"]').removeAttr('disabled');
+                    break;
+                case 'memcached':
+                    var port = $('input[name="port"]').val();
+                    if (port == ""){
+                        $('input[name="port"]').val('11211');
+                    }
+                    $('input[name="ip"]').removeAttr('disabled');
+                    $('input[name="port"]').removeAttr('disabled');
+                    $('input[name="passwd"]').removeAttr('disabled');
+                    break;
+            }
+        });
+
+        //load session stats
+        phpPost('get_session_count', version, '', function(ret_data){
+            var rdata = $.parseJSON(ret_data.data);
+            if(!rdata.status){
+                layer.msg(rdata.msg, { icon: rdata.status ? 1 : 2 });
+                return;
+            }
+            var rdata = rdata.data;
+
+            var html_var = "<div class='clear_title' style='padding-bottom:15px;'>清理Session文件</div>\
+                <div class='clear_conter'>\
+                    <div class='session_clear_list'>\
+                        <div class='line'><span>总Session文件数量</span><span>"+rdata.total+"</span></div>\
+                        <div class='line'><span>可清理的Session文件数量</span><span>"+rdata.oldfile+"</span></div>\
+                    </div>\
+                <button id='clean_func' class='btn btn-success btn-sm clear_session_file'>清理session文件</button>";
+
+            $("#session_clear").html(html_var);
+
+
+            $('#clean_func').click(function(){
+                phpPost('clean_session_old', version, '', function(ret_data){
+                    var rdata = $.parseJSON(ret_data.data);
+                    showMsg(rdata.msg,function(){
+                        getSessionConfig(version);
+                    },{ icon: rdata.status ? 1 : 2 });
+                });
+            });
+        });
+    });
+
+}
+
+function setSessionConfig(version){
+    var ip = $('input[name="ip"]').val();
+    var port = $('input[name="port"]').val();
+    var passwd = $('input[name="passwd"]').val();
+    var save_handler = $("select[name='save_handler']").val();
+    var data = {
+        ip:ip,
+        port:port,
+        passwd:passwd,
+        save_handler:save_handler,
+    };
+    phpPost('set_session_conf', version, data, function(ret_data){
+        var rdata = $.parseJSON(ret_data.data);
+        layer.msg(rdata.msg, { icon: rdata.status ? 1 : 2 });
     });
 }
 
@@ -407,10 +573,10 @@ function setDisableFunc(version, act, fs) {
 
 
 //phpinfo
-function getPhpinfo(version) {
-    var con = '<button class="btn btn-default btn-sm" onclick="getPHPInfo(\'' + version + '\')">查看phpinfo()</button>';
-    $(".soft-man-con").html(con);
-}
+// function getPhpinfo(version) {
+//     var con = '<button class="btn btn-default btn-sm" onclick="getPHPInfo(\'' + version + '\')">查看phpinfo()</button>';
+//     $(".soft-man-con").html(con);
+// }
 
 //获取PHPInfo
 function getPHPInfo_old(version) {
@@ -428,7 +594,7 @@ function getPHPInfo_old(version) {
 }
 
 function getPHPInfo(version) {
-    phpPostCallbak('get_php_info', version, {}, function(data){
+    phpPostCallback('get_php_info', version, {}, function(data){
         if (!data.status){
             layer.msg(rdata.msg, { icon: 2 });
             return;
@@ -467,9 +633,9 @@ function phpLibConfig(version){
             }
 
             if (libs[i]['task'] == '-1' && libs[i].phpversions.indexOf(version) != -1) {
-                opt = '<a style="color:green;" href="javascript:messageBox();">安装</a>'
+                opt = '<a style="color:green;" href="javascript:messageBox();">安装.</a>'
             } else if (libs[i]['task'] == '0' && libs[i].phpversions.indexOf(version) != -1) {
-                opt = '<a style="color:#C0C0C0;" href="javascript:messageBox();">等待安装...</a>'
+                opt = '<a style="color:#C0C0C0;" href="javascript:messageBox();">等待.</a>'
             } else if (libs[i].status) {
                 opt = '<a style="color:red;" href="javascript:uninstallPHPLib(\'' + version + '\',\'' + libs[i].name + '\',\'' + libs[i].title + '\',' + '' + ');">卸载</a>'
             } else {
@@ -531,7 +697,7 @@ function installPHPLib(version, name, title, pathinfo) {
 
 //卸载扩展
 function uninstallPHPLib(version, name, title, pathinfo) {
-    layer.confirm('您真的要安装{1}吗?'.replace('{1}', name), { icon: 3, closeBtn: 2 }, function() {
+    layer.confirm('您真的要卸载{1}吗?'.replace('{1}', name), { icon: 3, closeBtn: 2 }, function() {
         name = name.toLowerCase();
         var data = 'name=' + name + '&version=' + version;
         phpPost('uninstall_lib', version, data, function(data){

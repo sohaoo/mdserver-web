@@ -16,14 +16,26 @@ bash ${rootPath}/scripts/getos.sh
 OSNAME=`cat ${rootPath}/data/osname.pl`
 
 
-echo $OSNAME
-install_tmp=${rootPath}/tmp/mw_install.pl
+if [ -f ${rootPath}/bin/activate ];then
+	source ${rootPath}/bin/activate
+fi
+
+if id www &> /dev/null ;then 
+    echo "www uid is `id -u www`"
+    echo "www shell is `grep "^www:" /etc/passwd |cut -d':' -f7 `"
+else
+    groupadd www
+	useradd -g www -s /bin/bash www
+fi
+
+# echo $OSNAME
+
 Install_rsyncd()
 {
-	echo '正在安装脚本文件...' > $install_tmp
+	echo '正在安装脚本文件...'
 	
 
-	if [ "$OSNAME" == "debian'" ] || [ "$OSNAME" == "ubuntu'" ];then
+	if [ "$OSNAME" == "debian" ] || [ "$OSNAME" == "ubuntu" ];then
 		apt install -y rsync
 		apt install -y lsyncd
 	elif [[ "$OSNAME" == "arch" ]]; then
@@ -43,7 +55,7 @@ Install_rsyncd()
 	mkdir -p $serverPath/rsyncd/send
 	
 	echo '2.0' > $serverPath/rsyncd/version.pl
-	echo '安装完成' > $install_tmp
+	echo '安装完成'
 	cd ${rootPath} && python3 ${rootPath}/plugins/rsyncd/index.py start
 	cd ${rootPath} && python3 ${rootPath}/plugins/rsyncd/index.py initd_install
 }
@@ -58,12 +70,20 @@ Uninstall_rsyncd()
 		systemctl daemon-reload
 	fi
 
+	if [ -f /usr/lib/systemd/system/lsyncd.service ] || [ -f /lib/systemd/system/lsyncd.service ];then
+		systemctl stop lsyncd
+		systemctl disable lsyncd
+		rm -rf /usr/lib/systemd/system/lsyncd.service
+		rm -rf /lib/systemd/system/lsyncd.service
+		systemctl daemon-reload
+	fi
+
 	if [ -f $serverPath/rsyncd/initd/rsyncd ];then
 		$serverPath/rsyncd/initd/rsyncd stop
 	fi
 	
 	rm -rf $serverPath/rsyncd
-	echo "卸载完成" > $install_tmp
+	echo "卸载完成"
 }
 
 action=$1

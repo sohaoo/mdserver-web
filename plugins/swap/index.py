@@ -5,8 +5,12 @@ import io
 import os
 import time
 
-sys.path.append(os.getcwd() + "/class/core")
-import mw
+web_dir = os.getcwd() + "/web"
+if os.path.exists(web_dir):
+    sys.path.append(web_dir)
+    os.chdir(web_dir)
+
+import core.mw as mw
 
 app_debug = False
 if mw.isAppleSystem():
@@ -53,6 +57,13 @@ def getArgs():
     return tmp
 
 
+def checkArgs(data, ck=[]):
+    for i in range(len(ck)):
+        if not ck[i] in data:
+            return (False, mw.returnJson(False, '参数:(' + ck[i] + ')没有!'))
+    return (True, mw.returnJson(True, 'ok'))
+
+
 def status():
     data = mw.execShell("free -m|grep Swap|awk '{print $2}'")
     if data[0].strip() == '0':
@@ -68,7 +79,7 @@ def getInitDTpl():
 def initDreplace():
 
     file_tpl = getInitDTpl()
-    service_path = os.path.dirname(os.getcwd())
+    service_path = mw.getServerDir()
 
     initD_path = getServerDir() + '/init.d'
     if not os.path.exists(initD_path):
@@ -90,12 +101,11 @@ def initDreplace():
     if os.path.exists(systemDir) and not os.path.exists(systemService):
         swapon_bin = mw.execShell('which swapon')[0].strip()
         swapoff_bin = mw.execShell('which swapoff')[0].strip()
-        service_path = mw.getServerDir()
-        se_content = mw.readFile(systemServiceTpl)
-        se_content = se_content.replace('{$SERVER_PATH}', service_path)
-        se_content = se_content.replace('{$SWAPON_BIN}', swapon_bin)
-        se_content = se_content.replace('{$SWAPOFF_BIN}', swapoff_bin)
-        mw.writeFile(systemService, se_content)
+        content = mw.readFile(systemServiceTpl)
+        content = content.replace('{$SERVER_PATH}', service_path)
+        content = content.replace('{$SWAPON_BIN}', swapon_bin)
+        content = content.replace('{$SWAPOFF_BIN}', swapoff_bin)
+        mw.writeFile(systemService, content)
         mw.execShell('systemctl daemon-reload')
 
     return file_bin
@@ -110,7 +120,7 @@ def swapOp(method):
             return 'ok'
         return 'fail'
 
-    data = mw.execShell(file + ' start')
+    data = mw.execShell(file + ' ' + method)
     if data[1] == '':
         return 'ok'
     return 'fail'
@@ -129,7 +139,7 @@ def restart():
 
 
 def reload():
-    return swapOp('reload')
+    return 'ok'
 
 
 def initdStatus():
@@ -158,6 +168,36 @@ def initdUinstall():
     mw.execShell('systemctl disable swap')
     return 'ok'
 
+
+def swapStatus():
+    sfile = getServerDir() + '/swapfile'
+
+    if os.path.exists(sfile):
+        size = os.path.getsize(sfile) / 1024 / 1024
+    else:
+        size = '218'
+    data = {'size': size}
+    return mw.returnJson(True, "ok", data)
+
+
+def changeSwap():
+    args = getArgs()
+    data = checkArgs(args, ['size'])
+    if not data[0]:
+        return data[1]
+
+    size = args['size']
+    swapOp('stop')
+
+    gsdir = getServerDir()
+
+    cmd = 'dd if=/dev/zero of=' + gsdir + '/swapfile bs=1M count=' + size
+    cmd += ' && mkswap ' + gsdir + '/swapfile && chmod 600 ' + gsdir + '/swapfile'
+    msg = mw.execShell(cmd)
+    swapOp('start')
+
+    return mw.returnJson(True, "修改成功:\n" + msg[0])
+
 if __name__ == "__main__":
     func = sys.argv[1]
     if func == 'status':
@@ -178,5 +218,9 @@ if __name__ == "__main__":
         print(initdUinstall())
     elif func == 'conf':
         print(getConf())
+    elif func == "swap_status":
+        print(swapStatus())
+    elif func == "change_swap":
+        print(changeSwap())
     else:
         print('error')

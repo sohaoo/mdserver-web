@@ -1,6 +1,6 @@
 #!/bin/bash
-PATH=/bin:/sbin:/usr/bin:/usr/sbin:/usr/local/bin:/usr/local/sbin:~/bin
-export PATH
+PATH=/bin:/sbin:/usr/bin:/usr/sbin:/usr/local/bin:/usr/local/sbin:~/bin:/opt/homebrew/bin
+export PATH=$PATH:/opt/homebrew/bin
 
 curPath=`pwd`
 
@@ -10,7 +10,7 @@ rootPath=$(dirname "$rootPath")
 rootPath=$(dirname "$rootPath")
 serverPath=$(dirname "$rootPath")
 sourcePath=${serverPath}/source/php
-
+SYS_ARCH=`arch`
 actionType=$1
 version=$2
 
@@ -34,52 +34,31 @@ fi
 
 Install_lib()
 {
+	if [ "$version" -lt "70" ];then
+		bash $curPath/openssl_low_version.sh $actionType $version
+		return 
+	fi
+
 
 	isInstall=`cat $serverPath/php/$version/etc/php.ini|grep "${LIBNAME}.so"`
 	if [ "${isInstall}" != "" ];then
 		echo "php-$version 已安装${LIBNAME},请选择其它版本!"
 		return
 	fi
-	
-	# cd $serverPath/mdserver-web/plugins/php/lib && /bin/bash openssl_10.sh
-	if [ "$version" -lt "70" ];then
-		cd $serverPath/mdserver-web/plugins/php/lib && /bin/bash openssl_10.sh
-	fi
 
 	if [ ! -f "$extFile" ];then
-
-		if [ ! -d $sourcePath/php${version}/ext ];then
-			cd $serverPath/mdserver-web/plugins/php && /bin/bash install.sh install ${version}
-		fi
-
-		cd $sourcePath/php${version}/ext/${LIBNAME}
-
-		if [ ! -f "config.m4" ];then
-			mv config0.m4 config.m4
-		fi
-		
-		openssl_version=`pkg-config openssl --modversion`
-		if [ "$version" -lt "70" ];then
-			export PKG_CONFIG_PATH=$serverPath/lib/openssl10/lib/pkgconfig
-		fi
-
-		$serverPath/php/$version/bin/phpize
-		./configure --with-php-config=$serverPath/php/$version/bin/php-config \
-		--with-openssl
-		make clean && make && make install && make clean
-		
-	fi
-
-	if [ ! -f "$extFile" ];then
-		echo "ERROR!"
-		return
+		echo "locked" > $extFile
 	fi
 
     echo "" >> $serverPath/php/$version/etc/php.ini
 	echo "[${LIBNAME}]" >> $serverPath/php/$version/etc/php.ini
-	echo "extension=${LIBNAME}.so" >> $serverPath/php/$version/etc/php.ini
+	if [ -f "/etc/ssl/certs/ca-certificates.crt" ];then
+		echo "openssl.cafile=/etc/ssl/certs/ca-certificates.crt" >> $serverPath/php/$version/etc/php.ini
+	elif [ -f "/etc/pki/tls/certs/ca-bundle.crt" ];then
+		echo "openssl.cafile=/etc/pki/tls/certs/ca-bundle.crt" >> $serverPath/php/$version/etc/php.ini
+	fi
 	
-	bash ${rootPath}/plugins/php/versions/lib.sh $version restart
+	cd  ${curPath} && bash ${rootPath}/plugins/php/versions/lib.sh $version restart
 	echo '==========================================================='
 	echo 'successful!'
 }
@@ -102,7 +81,7 @@ Uninstall_lib()
 	sed -i $BAK "/${LIBNAME}/d" $serverPath/php/$version/etc/php.ini
 		
 	rm -f $extFile
-	bash ${rootPath}/plugins/php/versions/lib.sh $version restart
+	cd  ${curPath} && bash ${rootPath}/plugins/php/versions/lib.sh $version restart
 	echo '==============================================='
 	echo 'successful!'
 }

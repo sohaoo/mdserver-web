@@ -1,11 +1,12 @@
 [Unit]
-Description=mw-task server daemon
+Description=mw-task daemon
 After=network.target
 
 [Service]
 Type=simple
 WorkingDirectory={$SERVER_PATH}
-ExecStart=python3 task.py
+EnvironmentFile={$SERVER_PATH}/scripts/init.d/service.sh
+ExecStart=python3 panel_task.py
 ExecStop=kill -HUP $MAINID
 ExecReload=kill -HUP $MAINID
 KillMode=process

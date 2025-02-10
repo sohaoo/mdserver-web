@@ -1,5 +1,5 @@
 #!/bin/bash
-PATH=/bin:/sbin:/usr/bin:/usr/sbin:/usr/local/bin:/usr/local/sbin:~/bin
+PATH=/bin:/sbin:/usr/bin:/usr/sbin:/usr/local/bin:/usr/local/sbin:~/bin:/opt/homebrew/bin
 export PATH
 
 curPath=`pwd`
@@ -8,31 +8,23 @@ rootPath=$(dirname "$rootPath")
 rootPath=$(dirname "$rootPath")
 rootPath=$(dirname "$rootPath")
 
+opensslVersion="3.0.10"
 # echo $rootPath
 
 SERVER_ROOT=$rootPath/lib
 SOURCE_ROOT=$rootPath/source/lib
-
-# if [ ! -d ${SERVER_ROOT}/openssl ];then
-#     cd ${SOURCE_ROOT}
-#     if [ ! -f ${SOURCE_ROOT}/openssl-1.0.2q.tar.gz ];then
-#         wget https://github.com/midoks/mdserver-web/releases/download/init/openssl-1.0.2q.tar.gz -T 20
-#     fi 
-#     tar -zxf openssl-1.0.2q.tar.gz
-#     cd openssl-1.0.2q
-#     ./config --openssldir=${SERVER_ROOT}/openssl zlib-dynamic shared
-#     make && make install
-# fi
-
+mkdir -p $SOURCE_ROOT
 
 if [ ! -d ${SERVER_ROOT}/openssl ];then
     cd ${SOURCE_ROOT}
-    if [ ! -f ${SOURCE_ROOT}/openssl-1.1.1p.tar.gz ];then
-        wget -O ${SOURCE_ROOT}/openssl-1.1.1p.tar.gz https://www.openssl.org/source/openssl-1.1.1p.tar.gz
+    if [ ! -f ${SOURCE_ROOT}/openssl-${opensslVersion}.tar.gz ];then
+        wget --no-check-certificate -O ${SOURCE_ROOT}/openssl-${opensslVersion}.tar.gz https://www.openssl.org/source/openssl-${opensslVersion}.tar.gz
     fi 
-    tar -zxvf openssl-1.1.1p.tar.gz
-    cd openssl-1.1.1p
+    tar -zxvf openssl-${opensslVersion}.tar.gz
+    cd openssl-${opensslVersion}
     ./config --prefix=${SERVER_ROOT}/openssl zlib-dynamic shared
     make && make install
+
+    cd $SOURCE_ROOT && rm -rf $SOURCE_ROOT/openssl-${opensslVersion}
 fi
 

@@ -43,11 +43,14 @@ function wsPost(method, version, args,callback){
     });
 }
 
+
+
 function wsPostCallbak(method, version, args,callback){
     var loadT = layer.msg('正在获取...', { icon: 16, time: 0, shade: 0.3 });
 
     var req_data = {};
     req_data['name'] = 'webstats';
+    req_data['script']='webstats_index';
     req_data['func'] = method;
     args['version'] = version;
  
@@ -180,7 +183,7 @@ function wsOverviewRequest(page){
 
     var select_option = $('.indicators-container input:checked').parent().attr('data-name');
 
-    console.log($('.indicators-container input:checked').parent().find('span').text());
+    // console.log($('.indicators-container input:checked').parent().find('span').text());
     // console.log(select_option);
 
     wsPost('get_overview_list', '' ,args, function(rdata){
@@ -189,7 +192,7 @@ function wsOverviewRequest(page){
         var data = rdata.data.data;
         var statData = rdata.data.stat_list;
 
-        console.log(statData, data);
+        // console.log(statData, data);
 
         var stat_pv = statData['pv'] == null?0:statData['pv'];
         var stat_uv = statData['uv'] == null?0:statData['uv'];
@@ -380,29 +383,31 @@ function wsOverviewRequest(page){
                 var select_option = $('.indicators-container input:checked').parent().attr('data-name');
                 if (select_option != "realtime_traffic" && select_option != 'realtime_request' ){
                     clearInterval(ovTimer);
-                    console.log("get_logs_realtime_info over:"+select_option);
+                    // console.log("get_logs_realtime_info over:"+select_option);
                     return;
                 }
 
-                wsOriginPost("get_logs_realtime_info",'',{"site":args["site"], "type":select_option} , function(rdata){    
+                var second = $('#check_realtime_second').val();
+
+                wsOriginPost("get_logs_realtime_info",'',{"site":args["site"], "type":select_option,'second':second} , function(rdata){    
                     
                     var rdata = $.parseJSON(rdata.data);
 
                     var realtime_traffic = rdata.data['realtime_traffic'];
                     var realtime_request = rdata.data['realtime_request'];
 
-                    realtime_traffic_calc = (realtime_traffic/1024).toFixed()
+                    realtime_traffic_calc = toSize(realtime_traffic);
 
 
-                    $('.overview_list .overview_box:eq(5) .ov_num').text(realtime_traffic_calc+"kb");
+                    $('.overview_list .overview_box:eq(5) .ov_num').text(realtime_traffic_calc);
                     $('.overview_list .overview_box:eq(6) .ov_num').text(realtime_request);
 
                     
                     var realtime_name = select_option == 'realtime_traffic' ? '实时流量':'每秒请求';
                     var val = realtime_request;
                     if (select_option == 'realtime_traffic'){
-                        val = realtime_traffic_calc;
-                        realtime_name = realtime_name + " "+ realtime_traffic_calc + "kb";
+                        val = realtime_traffic_calc.split(' ')[0];
+                        realtime_name = realtime_traffic_calc;
                     }
 
                     xData.push(getTime());
@@ -485,11 +490,11 @@ var html = '<div>\
                         <p class="ov_num">0</p>\
                     </div>\
                     <div class="overview_box">\
-                        <p class="ov_title">实时流量<i class="tips" data-toggle="tooltip" data-placement="top" title="当前10秒内您网站的实时流量大小。包括已排除的请求。">?</i></p>\
+                        <p class="ov_title">实时流量<i class="tips" data-toggle="tooltip" data-placement="top" title="当前X秒内您网站的实时流量大小。包括已排除的请求。">?</i></p>\
                         <p class="ov_num">0</p>\
                     </div>\
                     <div class="overview_box">\
-                        <p class="ov_title">每秒请求<i class="tips" data-toggle="tooltip" data-placement="top" title="当前10秒内您网站的实时请求数量。包括已排除的请求。">?</i></p>\
+                        <p class="ov_title"><span id="ov_title_req_second">每秒请求<span><i class="tips" data-toggle="tooltip" data-placement="top" title="当前1-10秒内您网站的实时请求数量。包括已排除的请求。">?</i></p>\
                         <p class="ov_num">0</p>\
                     </div>\
                 </div>\
@@ -522,7 +527,11 @@ var html = '<div>\
                         </div>\
                         <div class="indicators-label" bt-event-click="indicatorsType" data-name="realtime_request">\
                             <input type="radio" id="check_realtime_request" name="check_realtime_request">\
-                            <span class="check_realtime_request" style="font-weight:normal">每秒请求</span>\
+                            <span class="check_realtime_request" style="font-weight:normal">每X秒请求</span>\
+                        </div>\
+                        <div class="indicators-label" bt-event-click="indicatorsType">\
+                            <input class="bt-input-text mr5" type="number" id="check_realtime_second" name="check_realtime_second" value="1" style="width:40px;outline:none;height:23px;border-radius:3px;">\
+                            <span style="font-weight:normal">秒</span>\
                         </div>\
                     </div>\
                 </div>\
@@ -589,8 +598,34 @@ $('#search_time button').click(function(){
 });
 
 
-$('.indicators-container input').click(function(){
-    $('.indicators-container input').each(function(){
+function initRealtimeTraffic(){
+    var check_realtime_second = $('#check_realtime_second').val();
+    if (check_realtime_second<1){
+        check_realtime_second = 1;
+        $('#check_realtime_second').val(check_realtime_second);
+    }
+
+    if (check_realtime_second>10){
+        check_realtime_second = 10;
+        $('#check_realtime_second').val(check_realtime_second);
+    }
+    var title = "每秒请求";
+    if (check_realtime_second > 1){
+        title = '每'+check_realtime_second+'秒请求'
+    }
+
+    $('#ov_title_req_second').text(title)
+    $('.check_realtime_request').text(title);
+}
+
+
+initRealtimeTraffic();
+$('#check_realtime_second').change(function(){
+    initRealtimeTraffic();
+});
+
+$('.indicators-container input[type=radio]').click(function(){
+    $('.indicators-container input[type=radio]').each(function(){
         $(this).removeAttr('checked');
     });
     $(this).prop({'checked':true});
@@ -648,8 +683,7 @@ function wsSitesListRequest(page){
         var stat_length = 0;
         var stat_req = 0;
 
-        console.log(rdata, data);
-
+        // console.log(rdata, data);
          var list = '';
         if (data.length > 0){
             for(i in data){
@@ -853,16 +887,14 @@ function wsSitesListRequest(page){
                         });
                     },
                     yes:function(){
-                        var select = $('#webstats .tab-nav span');
                         var select_pos = 0;
-                        $('#webstats .tab-nav span').each(function(i){
+                        $('#site_conf .tab-nav span').each(function(i){
                             if ($(this).hasClass('on')){select_pos = i;}
                         });
                         var args = {"site":domain};
                         if ( [0,1,2,4].indexOf(select_pos)>-1 ){
                             var setting_cdn = $('textarea[name="setting-cdn"]').val();
                             // var list = setting_cdn.split('\n')
-
                             if ( select_pos == 0 ){
                                 args['cdn_headers'] = setting_cdn;
                             } else if ( select_pos == 1 ){
@@ -2032,7 +2064,7 @@ function wsTableErrorLogRequest(page){
                 type: 1,
                 title: "【"+res.domain + "】详情信息",
                 area: '600px',
-                closeBtn: 2,
+                closeBtn: 1,
                 shadeClose: false,
                 content: '<div class="pd15 lib-box">\
                     <div style="height:80px;"><table class="table" style="border:#ddd 1px solid; margin-bottom:10px">\
@@ -2080,6 +2112,7 @@ var html = '<div>\
                         <option value="503">503</option>\
                         <option value="403">403</option>\
                         <option value="404">404</option>\
+                        <option value="499">499</option>\
                     </select>\
                     <span style="margin-left:10px">时间: </span>\
                     <div class="input-group" style="margin-left:10px;width:350px;display: inline-table;vertical-align: top;">\
@@ -2110,7 +2143,7 @@ laydate.render({
             $(this).removeClass('cur');
         });
 
-        var timeA  = value.split('-')
+        var timeA  = value.split('-');
         var start = $.trim(timeA[0]+'-'+timeA[1]+'-'+timeA[2])
         var end = $.trim(timeA[3]+'-'+timeA[4]+'-'+timeA[5])
         query_txt = toUnixTime(start + " 00:00:00") + "-"+ toUnixTime(end + " 00:00:00")
@@ -2172,12 +2205,16 @@ function wsTableLogRequest(page){
 
     var args = {};   
     args['page'] = page;
-    args['page_size'] = 10;
+    args['page_size'] = 9;
 
     args['site'] = $('select[name="site"]').val();
     args['method'] = $('select[name="method"]').val();
     args['status_code'] = $('select[name="status_code"]').val();
+    args['request_time'] = $('select[name="request_time"]').val();
+    args['request_size'] = $('select[name="request_size"]').val();
     args['spider_type'] = $('select[name="spider_type"]').val();
+    args['referer'] = $('select[name="referer"]').val();
+    args['ip'] = $('input[name="ip"]').val();
 
     var query_date = 'today';
     if ($('#time_choose').attr("data-name") != ''){
@@ -2193,12 +2230,49 @@ function wsTableLogRequest(page){
     args['search_uri'] = search_uri;
 
     args['tojs'] = 'wsTableLogRequest';
-    wsPost('get_logs_list', '' ,args, function(rdata){
+
+    var spider_table = {
+        "1":"百度",
+        "2":"必应",
+        "3":"奇虎360",
+        "4":"Google",
+        "5":"头条",
+        "6":"搜狗",
+        "7":"有道",
+        "8":"搜搜",
+        "9":"Dnspod",
+        "10":"Yandex",
+        "11":"一搜",
+        "12":"其他",
+    }
+
+    var req_status = $('#logs_search').attr('req');
+    // console.log(req_status);
+    if (typeof(req_status) != 'undefined'){
+        if (req_status == 'start'){
+            layer.msg("正在请求中,请稍候!");
+            return;
+        }
+    }
+
+    $('#logs_search').attr('req','start');
+    // wsPost('get_logs_list', '' ,args, function(rdata){
+    wsPostCallbak('get_logs_list', '' ,args, function(rdata){
+        $('#logs_search').attr('req','end');
         var rdata = $.parseJSON(rdata.data);
         var list = '';
         var data = rdata.data.data;
+        // console.log(data);
+
         if (data.length > 0){
             for(i in data){
+                
+                var spider_tip = '';
+                if (data[i]['is_spider']>0){
+                    spider_tip_name = spider_table[data[i]['is_spider']]
+                    spider_tip = '<div data-toggle="tooltip" title="'+spider_tip_name+'爬虫" style="cursor:pointer;margin:3px;float:left;width:8px;height:8px;line-height:40px;border-radius:50%;background-color:#ccc;"></div>';
+                }
+
                 list += '<tr>';
                 list += '<td>' + getLocalTime(data[i]['time'])+'</td>';
                 list += '<td><span class="overflow_hide" style="width:100px;">' + data[i]['domain'] +'</span></td>';
@@ -2206,8 +2280,13 @@ function wsTableLogRequest(page){
                 list += '<td>' + toSize(data[i]['body_length']) +'</td>';
                 list += '<td>' + toSecond(data[i]['request_time']) +'</td>';
                 list += '<td><span class="overflow_hide" style="width:130px;">' + data[i]['uri'] +'</span></td>';
-                list += '<td><span class="overflow_hide" style="width:60px;">' + data[i]['status_code']+'/' + data[i]['method'] +'</span></td>';
-                list += '<td><a data-id="'+i+'" href="javascript:;" class="btlink details" title="详情">详情</a></td>';
+                list += '<td>'+spider_tip+'<span class="overflow_hide" style="width:60px;">' + data[i]['status_code']+'/' + data[i]['method'] +'</span></td>';
+
+                var http_data = '&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;';
+                if (data[i]['request_headers']!=''){
+                    http_data = '<a data-id="'+i+'" href="javascript:;" class="btlink http_data" title="HTTP">HTTP</a>&nbsp;|&nbsp;';
+                }
+                list += '<td><span>'+http_data+'<a data-id="'+i+'" href="javascript:;" class="btlink details" title="详情">详情</a></span></td>';
                 list += '</tr>';
             }
         } else{
@@ -2233,7 +2312,6 @@ function wsTableLogRequest(page){
         $('#ws_table').html(table);
         $('#wsPage').html(rdata.data.page);
 
-
         $(".tablescroll .details").click(function(){
             var index = $(this).attr('data-id');
             var res = data[index];
@@ -2241,7 +2319,7 @@ function wsTableLogRequest(page){
                 type: 1,
                 title: "【"+res.domain + "】详情信息",
                 area: '600px',
-                closeBtn: 2,
+                closeBtn: 1,
                 shadeClose: false,
                 content: '<div class="pd15 lib-box">\
                     <div style="height:80px;"><table class="table" style="border:#ddd 1px solid; margin-bottom:10px">\
@@ -2252,18 +2330,56 @@ function wsTableLogRequest(page){
                     <div><b style="margin-left:10px">协议</b></div>\
                     <div class="lib-con mt10"><div class="divpre">' + res.protocol + '</div></div>\
                     <div><b style="margin-left:10px">URL</b></div>\
-                    <div class="lib-con mt10"><div class="divpre">' + $('<div ></div>').text(res.uri).html() + '</div></div>\
+                    <div class="lib-con mt10"><div class="divpre">' + $('<div></div>').text(res.uri).html() + '</div></div>\
                     <div><b style="margin-left:10px">完整IP列表</b></div>\
                     <div class="lib-con mt10"><div class="divpre" style="max-height: 66px;">' + $('<div ></div>').text(res.ip_list).html() + '</div></div>\
                     <div><b style="margin-left:10px">来路</b></div>\
-                    <div class="lib-con mt10"><div class="divpre">' + $('<div ></div>').text(res.referer == null ?'None':res.referer).html() + '</div></div>\
+                    <div class="lib-con mt10"><div class="divpre">' + $('<div></div>').text(res.referer == null ?'None':res.referer).html() + '</div></div>\
                     <div><b style="margin-left:10px">User-Agent</b></div>\
-                    <div class="lib-con mt10"><div class="divpre">' + $('<div ></div>').text(res.user_agent).html() + '</div></div>\
+                    <div class="lib-con mt10"><div class="divpre">' + $('<div></div>').text(res.user_agent).html() + '</div></div>\
                     <div><b style="margin-left:10px">处理耗时</b></div>\
                     <div class="lib-con mt10"><div class="divpre">' +res.request_time + ' ms</div></div>\
                 </div>',
             });
         });
+
+        $(".tablescroll .http_data").click(function(){
+            var index = $(this).attr('data-id');
+            var res = data[index];
+            var request_headers = res.request_headers;
+
+            var req_data_html = res.method +' ' + res.uri + '<br/>';
+
+            try {
+                var req_data = $.parseJSON(request_headers);
+                for (var d in req_data) {
+                    if (d == 'payload'){
+                        req_data_html += '<b style="color:red;">'+d +"</b>:"+req_data[d]+"<br/>";
+                    } else{
+                        req_data_html += d+":"+req_data[d]+"<br/>";
+                    }
+                }
+            } catch (error) {
+                req_data_html += request_headers;
+            }
+
+
+            layer.open({
+                type: 1,
+                title: "【"+res.domain + "】HTTP详情",
+                area: ['600px','375px'],
+                closeBtn: 1,
+                shadeClose: false,
+                content: '<div class="pd15 lib-box">\
+                    <div class="lib-con mt10"><div class="divpre" style="max-height:250px;white-space: break-spaces;">' + req_data_html + '</div></div>\
+                    <ul class="help-info-text c7 mtb15">\
+                        <li style="list-style: none;">payload: POST请求中客户端提交的参数。</li>\
+                    </ul>\
+                </div>',
+            });
+        });
+
+        $('[data-toggle="tooltip"]').tooltip();
     });
 }
 
@@ -2304,8 +2420,18 @@ var html = '<div>\
                         <option value="500">500</option>\
                         <option value="502">502</option>\
                         <option value="503">503</option>\
+                        <option value="400">400</option>\
                         <option value="404">404</option>\
+                        <option value="499">499</option>\
+                        <option value="301">301</option>\
+                        <option value="302">302</option>\
                         <option value="200">200</option>\
+                    </select>\
+                    <span style="margin-left:10px;">来源: </span>\
+                    <select class="bt-input-text" name="referer" style="margin-left:4px">\
+                        <option value="all">所有</option>\
+                        <option value="-1">无</option>\
+                        <option value="1">有</option>\
                     </select>\
                     <span style="margin-left:10px;">蜘蛛过滤: </span>\
                     <select class="bt-input-text" name="spider_type" style="margin-left:4px">\
@@ -2322,8 +2448,32 @@ var html = '<div>\
                         <option value="8">搜搜</option>\
                         <option value="9">Dnspod</option>\
                         <option value="10">Yandex</option>\
-                        <option value="12">神马</option>\
+                        <option value="11">一搜</option>\
                         <option value="12">其他</option>\
+                    </select>\
+                    <span>IP: </span>\
+                    <div class="input-group" style="width:163px;display:inline-flex;">\
+                        <input type="text" name="ip" class="form-control btn-group-sm" autocomplete="off" placeholder="IP地址" style="font-size: 12px;padding: 0 10px;height:30px;">\
+                    </div>\
+                </div>\
+                <div style="padding-bottom:10px;">\
+                    <span>耗时: </span>\
+                    <select class="bt-input-text" name="request_time" style="margin-left:5px;">\
+                        <option value="all">所有</option>\
+                        <option value="0-50">0-50(ms)</option>\
+                        <option value="50-200">50-200(ms)</option>\
+                        <option value="200-500">200-500(ms)</option>\
+                        <option value="500-1000">500ms-1s</option>\
+                        <option value="1000">大于1s</option>\
+                    </select>\
+                    <span style="margin-left:10px;">大小: </span>\
+                    <select class="bt-input-text" name="request_size" style="margin-left:5px;">\
+                        <option value="all">所有</option>\
+                        <option value="0-1">0-1(kb)</option>\
+                        <option value="1-20">1-20(kb)</option>\
+                        <option value="20-50">20-50(kb)</option>\
+                        <option value="50-100">50-100(kb)</option>\
+                        <option value="100">大于100kb</option>\
                     </select>\
                     <span style="margin-left:10px;">URL过滤: </span>\
                     <div class="input-group" style="width:210px;display:inline-flex;">\
@@ -2337,12 +2487,30 @@ var html = '<div>\
             </div>';
 $(".soft-man-con").html(html);
 
+$('input[name="ip"]').bind('focus', function(e){
+    $(this).keyup(function(e){
+        if(e.keyCode == 13) {
+            wsTableLogRequest(1);
+        }
+    });
+});
+
+$('input[name="search_uri"]').bind('focus', function(e){
+    $(this).keyup(function(e){
+        if(e.keyCode == 13) {
+            wsTableLogRequest(1);
+        }
+    });
+});
+
 //日期范围
 laydate.render({
     elem: '#time_choose',
     value:'',
-    range:true,
+    range:'~',
+    type:'datetime',
     done:function(value, startDate, endDate){
+        console.log(value, startDate, endDate);
         if(!value){
             return false;
         }
@@ -2351,10 +2519,10 @@ laydate.render({
             $(this).removeClass('cur');
         });
 
-        var timeA  = value.split('-')
-        var start = $.trim(timeA[0]+'-'+timeA[1]+'-'+timeA[2])
-        var end = $.trim(timeA[3]+'-'+timeA[4]+'-'+timeA[5])
-        query_txt = toUnixTime(start + " 00:00:00") + "-"+ toUnixTime(end + " 00:00:00")
+        var timeArr  = value.split('~');
+        var start = $.trim(timeArr[0]);
+        var end = $.trim(timeArr[1]);
+        query_txt = toUnixTime(start) + "-"+ toUnixTime(end);
 
         $('#time_choose').attr("data-name",query_txt);
         $('#time_choose').addClass("cur");
@@ -2390,6 +2558,18 @@ $('select[name="spider_type"]').change(function(){
     wsTableLogRequest(1);
 });
 
+$('select[name="referer"]').change(function(){
+    wsTableLogRequest(1);
+});
+
+$('select[name="request_time"]').change(function(){
+    wsTableLogRequest(1);
+});
+
+$('select[name="request_size"]').change(function(){
+    wsTableLogRequest(1);
+});
+
 $('#logs_search').click(function(){
     wsTableLogRequest(1);
 });
@@ -2418,13 +2598,5 @@ wsPost('get_default_site','',{},function(rdata){
 
 ////////////////////////////////////////////////////////////////////////////////////////////////////////
 }
-
-
-
-
-
-
-
-
 
 

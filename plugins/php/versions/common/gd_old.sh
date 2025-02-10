@@ -1,6 +1,6 @@
 #!/bin/bash
-PATH=/bin:/sbin:/usr/bin:/usr/sbin:/usr/local/bin:/usr/local/sbin:~/bin
-export PATH
+PATH=/bin:/sbin:/usr/bin:/usr/sbin:/usr/local/bin:/usr/local/sbin:~/bin:/opt/homebrew/bin
+export PATH=$PATH:/opt/homebrew/bin
 
 curPath=`pwd`
 
@@ -10,12 +10,13 @@ rootPath=$(dirname "$rootPath")
 rootPath=$(dirname "$rootPath")
 serverPath=$(dirname "$rootPath")
 sourcePath=${serverPath}/source/php
-
+SYS_ARCH=`arch`
 actionType=$1
 version=$2
 
 LIBNAME=gd
 LIBV=0
+
 
 
 # if [ "$version" -lt "74" ];then
@@ -40,7 +41,7 @@ else
 fi
 
 
-# cd $serverPath/mdserver-web/plugins/php/lib && /bin/bash freetype_old.sh
+# cd ${rootPath}/plugins/php/lib && /bin/bash freetype_old.sh
 # OPTIONS="${OPTIONS} --with-freetype-dir=${serverPath}/lib/freetype_old"
 # OPTIONS="${OPTIONS} --with-gd --enable-gd-native-ttf"
 # OPTIONS="${OPTIONS} --with-jpeg --with-jpeg-dir=/usr/lib"
@@ -55,29 +56,47 @@ Install_lib()
 		return
 	fi
 
-	cd $serverPath/mdserver-web/plugins/php/lib && /bin/bash freetype_old.sh
+	cd ${rootPath}/plugins/php/lib && /bin/bash freetype_old.sh
 	
 	if [ ! -f "$extFile" ];then
 
 		if [ ! -d $sourcePath/php${version}/ext ];then
-			cd $serverPath/mdserver-web/plugins/php && /bin/bash install.sh install ${version}
+			cd ${rootPath}/plugins/php && /bin/bash ${rootPath}/plugins/php/versions/${version}/install.sh install 
 		fi
 		
 		cd $sourcePath/php${version}/ext/${LIBNAME}
 		
 		$serverPath/php/$version/bin/phpize
 
+		OPTIONS=""
+		if [ "${SYS_ARCH}" == "aarch64" ] && [ "$version" -lt "56" ];then
+			OPTIONS="$OPTIONS --build=aarch64-unknown-linux-gnu --host=aarch64-unknown-linux-gnu"
+		fi
+
+		if [ "$version" -lt "55" ];then
+			echo "not need xmp"
+		else
+			OPTIONS="$OPTIONS --with-xpm-dir"
+		fi
+
 		#--with-xpm
 		# =${serverPath}/lib/freetype_old
 		# =/usr/lib
 		./configure --with-php-config=$serverPath/php/$version/bin/php-config \
+		$OPTIONS \
 		--with-gd \
 		--with-jpeg-dir \
-		--with-freetype-dir=${serverPath}/lib/freetype_old \
+		--with-png-dir \
+		--with-webp-dir \
+		--with-zlib-dir \
 		--enable-gd-jis-conv \
-		--enable-gd-native-ttf
+		--with-freetype-dir=${serverPath}/lib/freetype_old
+		# --enable-gd-native-ttf
 		make clean && make && make install && make clean
 		
+		if [ -d $sourcePath/php${version} ];then
+			cd ${sourcePath} && rm -rf $sourcePath/php${version}
+		fi
 	fi
 
 	if [ ! -f "$extFile" ];then
@@ -89,7 +108,7 @@ Install_lib()
 	echo "[${LIBNAME}]" >> $serverPath/php/$version/etc/php.ini
 	echo "extension=${LIBNAME}.so" >> $serverPath/php/$version/etc/php.ini
 	
-	bash ${rootPath}/plugins/php/versions/lib.sh $version restart
+	cd  ${curPath} && bash ${rootPath}/plugins/php/versions/lib.sh $version restart
 	echo '==========================================================='
 	echo 'successful!'
 }
@@ -112,7 +131,7 @@ Uninstall_lib()
 	sed -i $BAK "/${LIBNAME}/d" $serverPath/php/$version/etc/php.ini
 		
 	rm -f $extFile
-	bash ${rootPath}/plugins/php/versions/lib.sh $version restart
+	cd  ${curPath} && bash ${rootPath}/plugins/php/versions/lib.sh $version restart
 	echo '==============================================='
 	echo 'successful!'
 }

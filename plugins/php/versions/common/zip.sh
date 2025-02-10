@@ -1,9 +1,13 @@
 #!/bin/bash
-PATH=/bin:/sbin:/usr/bin:/usr/sbin:/usr/local/bin:/usr/local/sbin:~/bin
-export PATH
+PATH=/bin:/sbin:/usr/bin:/usr/sbin:/usr/local/bin:/usr/local/sbin:~/bin:/opt/homebrew/bin
+export PATH=$PATH:/opt/homebrew/bin
+
+function version_gt() { test "$(echo "$@" | tr " " "\n" | sort -V | head -n 1)" != "$1"; }
+function version_le() { test "$(echo "$@" | tr " " "\n" | sort -V | head -n 1)" == "$1"; }
+function version_lt() { test "$(echo "$@" | tr " " "\n" | sort -rV | head -n 1)" != "$1"; }
+function version_ge() { test "$(echo "$@" | tr " " "\n" | sort -rV | head -n 1)" == "$1"; }
 
 curPath=`pwd`
-
 appPath=$(dirname "$curPath")
 
 rootPath=$(dirname "$curPath")
@@ -18,12 +22,6 @@ version=$2
 
 LIBNAME=zip
 LIBV=0
-
-
-if [ "$version" -lt "73" ];then
-	echo "not need"
-	exit 1
-fi
 
 LIB_PATH_NAME=lib/php
 if [ -d $serverPath/php/${version}/lib64 ];then
@@ -40,7 +38,19 @@ else
 	BAK=''
 fi
 
-export PKG_CONFIG_PATH=/www/server/lib/libzip/lib/pkgconfig
+if [ ! -d $serverPath/lib/libzip ];then
+	cd ${rootPath}/plugins/php/lib && /bin/bash libzip.sh
+fi
+
+export PKG_CONFIG_PATH=${serverPath}/lib/libzip/lib/pkgconfig
+
+# ZIP_OPTION='--with-zip'
+# libzip_version=`pkg-config libzip --modversion`
+# if version_lt "$libzip_version" "0.11.0" ;then
+# 	cd ${rootPath}/plugins/php/lib && /bin/bash libzip.sh
+# 	export PKG_CONFIG_PATH=$serverPath/lib/libzip/lib/pkgconfig
+# 	ZIP_OPTION="--with-zip=$serverPath/lib/libzip"
+# fi
 
 Install_lib()
 {
@@ -51,19 +61,23 @@ Install_lib()
 		return
 	fi
 	
+	
 	if [ ! -f "$extFile" ];then
 
 		if [ ! -d $sourcePath/php${version}/ext ];then
-			cd $serverPath/mdserver-web/plugins/php && /bin/bash install.sh install ${version}
+			cd ${rootPath}/plugins/php && /bin/bash ${rootPath}/plugins/php/versions/${version}/install.sh install 
 		fi
 
 		cd $sourcePath/php${version}/ext/${LIBNAME}
 		
 		$serverPath/php/$version/bin/phpize
-		./configure --with-php-config=$serverPath/php/$version/bin/php-config \
-		--with-zip
+		./configure --with-php-config=$serverPath/php/$version/bin/php-config --with-zip
 
 		make clean && make && make install && make clean
+
+		if [ -d $sourcePath/php${version} ];then
+			cd ${sourcePath} && rm -rf $sourcePath/php${version}
+		fi
 		
 	fi
 
@@ -76,7 +90,7 @@ Install_lib()
 	echo "[${LIBNAME}]" >> $serverPath/php/$version/etc/php.ini
 	echo "extension=${LIBNAME}.so" >> $serverPath/php/$version/etc/php.ini
 	
-	bash ${rootPath}/plugins/php/versions/lib.sh $version restart
+	cd  ${curPath} && bash ${rootPath}/plugins/php/versions/lib.sh $version restart
 	echo '==========================================================='
 	echo 'successful!'
 }
@@ -99,7 +113,7 @@ Uninstall_lib()
 	sed -i $BAK "/${LIBNAME}/d" $serverPath/php/$version/etc/php.ini
 		
 	rm -f $extFile
-	bash ${rootPath}/plugins/php/versions/lib.sh $version restart
+	cd  ${curPath} && bash ${rootPath}/plugins/php/versions/lib.sh $version restart
 	echo '==============================================='
 	echo 'successful!'
 }

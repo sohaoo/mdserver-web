@@ -8,8 +8,6 @@ rootPath=$(dirname "$rootPath")
 serverPath=$(dirname "$rootPath")
 sourcePath=${serverPath}/source
 sysName=`uname`
-install_tmp=${rootPath}/tmp/mw_install.pl
-
 
 version=8.1.x
 PHP_VER=81
@@ -28,9 +26,9 @@ fi
 
 Uninstall_php()
 {
-	# $serverPath/php-ya/init.d/php${PHP_VER} stop
+	yum remove -y php81 php81-php-fpm php81-*
 	rm -rf $serverPath/php-yum/${PHP_VER}
-	echo "卸载php-${version}..." > $install_tmp
+	echo "卸载php-${version}..."
 }
 
 action=${1}

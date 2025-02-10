@@ -70,6 +70,7 @@ function supList(page, search){
 
             list += '<td style="text-align:right">\
             			<a href="javascript:;" class="btlink" onclick="startOrStop(\''+rdata.data[i]['program']+'\',\''+sup_status+'\')" title="启动|停止">'+sup_status_desc+'</a> | ' +
+            			'<a href="javascript:;" class="btlink" onclick="restartJob(\''+rdata.data[i]['program']+'\',\''+sup_status+'\')" title="重启">重启</a> | ' +
                         '<a href="javascript:;" class="btlink" onclick="updateJob(\''+rdata.data[i]['program']+'\')">修改</a> | ' +
                         '<a href="javascript:;" class="btlink" onclick="delJob(\''+rdata.data[i]['program']+'\')" title="删除">删除</a>' +
                     '</td>';
@@ -120,6 +121,15 @@ function supList(page, search){
 
 function startOrStop(name,status){
 	myPost('start_job',{'name':name,'status':status}, function(data){
+		var rdata = $.parseJSON(data.data);
+		showMsg(rdata.msg, function(){
+			supList(1,10);
+		},{icon:rdata.status?1:2}, rdata.status ? 2000 : 10000);
+	});
+}
+
+function restartJob(name,status){
+	myPost('restart_job',{'name':name,'status':status}, function(data){
 		var rdata = $.parseJSON(data.data);
 		layer.msg(rdata.msg,{icon:rdata.status?1:2});
 		setTimeout(function(){
@@ -544,4 +554,71 @@ function supLogs(_name, config_tpl_func, read_config_tpl_func,line){
     },'json');
 }
 
+
+function confdListTraceLog(name){
+	var args = {};
+    args["name"] = name;
+    pluginRollingLogs("supervisor", '', "confd_list_trace_log", JSON.stringify(args), 21);
+}
+
+function confdListErrLog(name){
+	var args = {};
+    args["name"] = name;
+    pluginRollingLogs("supervisor", '', "confd_list_error_log", JSON.stringify(args), 21);
+}
+
+function confdList(page, search){
+    var _data = {};
+    if (typeof(page) =='undefined'){
+        var page = 1;
+    }
+    
+    _data['page'] = page;
+    _data['page_size'] = 10;
+    if(typeof(search) != 'undefined'){
+        _data['search'] = search;
+    }
+
+    myPost('confd_list', _data, function(data){
+        var rdata = $.parseJSON(data.data);
+        // console.log(rdata.data);
+        var list = '';
+        for(i in rdata.data){
+            list += '<tr>';
+            list += '<td>' + rdata.data[i]['name'] +'</td>';
+
+            list += '<td style="text-align:right">\
+                        <a class="btlink" onclick="confdListTraceLog(\''+rdata.data[i]['name']+'\')">日志跟踪</a> | ' +
+                        '<a class="btlink" onclick="confdListErrLog(\''+rdata.data[i]['name']+'\')">查看错误日志</a>' +
+                    '</td>';
+
+            list += '</tr>';
+        }
+
+        if( rdata.data.length == 0 ){
+        	list = "<tr><td colspan='9'>当前没有数据</td></tr>";
+        }
+
+        var con = '<div class="safe bgw">\
+            <button onclick="confdList()" title="刷新" class="btn btn-success btn-sm" type="button" style="margin-right: 5px;">刷新</button>\
+            <div class="divtable mtb10">\
+                <div class="tablescroll">\
+                    <table id="DataBody" class="table table-hover" width="100%" cellspacing="0" cellpadding="0" border="0" style="border: 0 none;">\
+                    <thead>\
+                    <th>名称</th>\
+                    <th style="text-align:right;">操作</th></tr></thead>\
+                    <tbody>'+ list +'</tbody></table>\
+                </div>\
+                <div id="databasePage" class="dataTables_paginate paging_bootstrap page"></div>\
+            </div>\
+        </div>';
+        
+        con += '<div class="code">\
+            <span>方便查看日志</span>\
+        </div>'
+
+        $(".soft-man-con").html(con);
+        $('#databasePage').html(rdata.page);
+    });
+}
 

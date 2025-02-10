@@ -1,5 +1,5 @@
 #!/bin/bash
-PATH=/bin:/sbin:/usr/bin:/usr/sbin:/usr/local/bin:/usr/local/sbin:~/bin
+PATH=/bin:/sbin:/usr/bin:/usr/sbin:/usr/local/bin:/usr/local/sbin:~/bin:/opt/homebrew/bin
 export PATH
 
 curPath=`pwd`
@@ -7,13 +7,22 @@ rootPath=$(dirname "$curPath")
 rootPath=$(dirname "$rootPath")
 serverPath=$(dirname "$rootPath")
 
-install_tmp=${rootPath}/tmp/mw_install.pl
+# cd /www/server/mdserver-web && python3 plugins/phpmyadmin/index.py start
 
+if [ -f ${rootPath}/bin/activate ];then
+	source ${rootPath}/bin/activate
+fi
+
+if [ "$sys_os" == "Darwin" ];then
+	BAK='_bak'
+else
+	BAK=''
+fi
 
 sysName=`uname`
 echo "use system: ${sysName}"
 
-if [ ${sysName} == "Darwin" ]; then
+if [ "${sysName}" == "Darwin" ]; then
 	OSNAME='macos'
 elif grep -Eqi "CentOS" /etc/issue || grep -Eq "CentOS" /etc/*-release; then
 	OSNAME='centos'
@@ -31,9 +40,13 @@ fi
 
 Install_phpmyadmin()
 {
-	mkdir -p ${serverPath}/phpmyadmin
-	mkdir -p ${serverPath}/source/phpmyadmin
+	if [ -d $serverPath/phpmyadmin ];then
+		exit 0
+	fi
 
+	mkdir -p ${serverPath}/source/phpmyadmin
+	echo "${1}" > ${serverPath}/phpmyadmin/version.pl
+	
 	VER=$1
 	
 	FDIR=phpMyAdmin-${VER}-all-languages
@@ -48,22 +61,15 @@ Install_phpmyadmin()
 	if [ ! -d $serverPath/source/phpmyadmin/$FDIR ];then
 		cd $serverPath/source/phpmyadmin  && tar zxvf $FILE
 	fi
-
+	
+	mkdir -p ${serverPath}/phpmyadmin
 	cp -r $serverPath/source/phpmyadmin/$FDIR $serverPath/phpmyadmin/
 	cd $serverPath/phpmyadmin/ && mv $FDIR phpmyadmin
+	rm -rf $serverPath/source/phpmyadmin/$FDIR
 	
-	mkdir -p  $serverPath/phpmyadmin/tmp
-	chown -R www:www $serverPath/phpmyadmin/tmp
-
-	if [ "$OSNAME" != 'macos' ];then
-		chown -R www:www $serverPath/phpmyadmin/tmp
-	fi
-
-	echo "${1}" > ${serverPath}/phpmyadmin/version.pl
-	echo '安装完成' > $install_tmp
-
 	cd ${rootPath} && python3 ${rootPath}/plugins/phpmyadmin/index.py start
-		
+	
+	echo '安装完成'
 }
 
 Uninstall_phpmyadmin()
@@ -71,7 +77,7 @@ Uninstall_phpmyadmin()
 	cd ${rootPath} && python3 ${rootPath}/plugins/phpmyadmin/index.py stop
 	
 	rm -rf ${serverPath}/phpmyadmin
-	echo '卸载完成' > $install_tmp
+	echo '卸载完成'
 }
 
 action=$1

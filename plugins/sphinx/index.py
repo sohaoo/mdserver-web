@@ -8,21 +8,24 @@ import re
 import string
 import subprocess
 
-sys.path.append(os.getcwd() + "/class/core")
-import mw
+web_dir = os.getcwd() + "/web"
+if os.path.exists(web_dir):
+    sys.path.append(web_dir)
+    os.chdir(web_dir)
+
+import core.mw as mw
 
 app_debug = False
 if mw.isAppleSystem():
     app_debug = True
 
-
 def getPluginName():
     return 'sphinx'
-
 
 def getPluginDir():
     return mw.getPluginDir() + '/' + getPluginName()
 
+sys.path.append(getPluginDir() +"/class")
 
 def getServerDir():
     return mw.getServerDir() + '/' + getPluginName()
@@ -95,7 +98,7 @@ def readConfigTpl():
 
 def contentReplace(content):
     service_path = mw.getServerDir()
-    content = content.replace('{$ROOT_PATH}', mw.getRootDir())
+    content = content.replace('{$ROOT_PATH}', mw.getFatherDir())
     content = content.replace('{$SERVER_PATH}', service_path)
     content = content.replace('{$SERVER_APP}', service_path + '/sphinx')
     return content
@@ -103,7 +106,8 @@ def contentReplace(content):
 
 def status():
     data = mw.execShell(
-        "ps -ef|grep sphinx |grep -v grep | grep -v python | awk '{print $2}'")
+        "ps -ef|grep sphinx |grep -v grep | grep -v mdserver-web | awk '{print $2}'")
+    # print(data)
     if data[0] == '':
         return 'stop'
     return 'start'
@@ -111,7 +115,7 @@ def status():
 
 def mkdirAll():
     content = mw.readFile(getConf())
-    rep = 'path\s*=\s*(.*)'
+    rep = r'path\s*=\s*(.*)'
     p = re.compile(rep)
     tmp = p.findall(content)
 
@@ -125,7 +129,7 @@ def mkdirAll():
 def initDreplace():
 
     file_tpl = getInitDTpl()
-    service_path = os.path.dirname(os.getcwd())
+    service_path = mw.getServerDir()
 
     initD_path = getServerDir() + '/init.d'
     if not os.path.exists(initD_path):
@@ -151,7 +155,6 @@ def initDreplace():
     systemService = systemDir + '/sphinx.service'
     systemServiceTpl = getPluginDir() + '/init.d/sphinx.service.tpl'
     if os.path.exists(systemDir) and not os.path.exists(systemService):
-        service_path = mw.getServerDir()
         se_content = mw.readFile(systemServiceTpl)
         se_content = se_content.replace('{$SERVER_PATH}', service_path)
         mw.writeFile(systemService, se_content)
@@ -163,7 +166,7 @@ def initDreplace():
 
 def checkIndexSph():
     content = mw.readFile(getConf())
-    rep = 'path\s*=\s*(.*)'
+    rep = r'path\s*=\s*(.*)'
     p = re.compile(rep)
     tmp = p.findall(content)
     for x in tmp:
@@ -192,10 +195,14 @@ def sphOp(method):
 
 
 def start():
+    import tool_cron
+    tool_cron.createBgTask()
     return sphOp('start')
 
 
 def stop():
+    import tool_cron
+    tool_cron.removeBgTask()
     return sphOp('stop')
 
 
@@ -209,9 +216,10 @@ def reload():
 
 def rebuild():
     file = initDreplace()
-    subprocess.Popen(file + ' rebuild &',
-                     stdout=subprocess.PIPE, shell=True)
-    # data = mw.execShell(file + ' rebuild')
+    cmd = file + ' rebuild'
+    data = mw.execShell(cmd)
+    if data[0].find('successfully')<0:
+        return data[0].replace("\n","<br/>")
     return 'ok'
 
 
@@ -245,7 +253,7 @@ def initdUinstall():
 def runLog():
     path = getConf()
     content = mw.readFile(path)
-    rep = 'log\s*=\s*(.*)'
+    rep = r'log\s*=\s*(.*)'
     tmp = re.search(rep, content)
     return tmp.groups()[0]
 
@@ -253,7 +261,7 @@ def runLog():
 def getPort():
     path = getConf()
     content = mw.readFile(path)
-    rep = 'listen\s*=\s*(.*)'
+    rep = r'listen\s*=\s*(.*)'
     tmp = re.search(rep, content)
     return tmp.groups()[0]
 
@@ -261,7 +269,7 @@ def getPort():
 def queryLog():
     path = getConf()
     content = mw.readFile(path)
-    rep = 'query_log\s*=\s*(.*)'
+    rep = r'query_log\s*=\s*(.*)'
     tmp = re.search(rep, content)
     return tmp.groups()[0]
 
@@ -290,22 +298,39 @@ def sphinxConfParse():
     file = getConf()
     bin_dir = getServerDir()
     content = mw.readFile(file)
-    rep = 'index\s(.*)'
+    rep = r'index\s(.*)'
     sindex = re.findall(rep, content)
     indexlen = len(sindex)
     cmd = {}
-    if indexlen > 0:
-        cmd_index = []
-        cmd_delta = []
-        for x in range(indexlen):
-            if sindex[x].find(':') != -1:
-                cmd_delta.append(sindex[x])
-            else:
-                cmd_index.append(sindex[x])
+    cmd['cmd'] = bin_dir + '/bin/bin/indexer -c ' + bin_dir + '/sphinx.conf'
 
-        cmd['index'] = cmd_index
-        cmd['delta'] = cmd_delta
-        cmd['cmd'] = bin_dir + '/bin/bin/indexer -c ' + bin_dir + '/sphinx.conf'
+    cmd['index'] = []
+    cmd_index = []
+    cmd_delta = []
+    if indexlen > 0:
+        for x in range(indexlen):
+            name = sindex[x].strip()
+            if name == '':
+                continue
+            if  name.find(':') != -1:
+                cmd_delta.append(name.strip())
+            else:
+                cmd_index.append(name.strip())
+
+    # print(cmd_index)
+    # print(cmd_delta)
+
+    for ci in cmd_index:
+        val = {}
+        val['index'] = ci
+
+        for cd in cmd_delta:
+            cd = cd.replace(" ", '')
+            if cd.find(":"+ci) > -1:
+                val['delta'] = cd.split(":")[0].strip()
+                break
+
+        cmd['index'].append(val)
     return cmd
 
 
@@ -316,8 +341,103 @@ def sphinxCmd():
     else:
         return mw.returnJson(False, 'no index')
 
+def makeDbToSphinxTest():        
+    conf_file = getConf()
+    import  sphinx_make
+    sph_make = sphinx_make.sphinxMake()
+    conf = sph_make.makeSqlToSphinxAll()
+
+    mw.writeFile(conf_file,conf)
+    print(conf)
+    # makeSqlToSphinxTable()
+    return True
+
+def makeDbToSphinx():
+    args = getArgs()
+    check = checkArgs(args, ['db','tables','is_delta','is_cover'])
+    if not check[0]:
+        return check[1]
+
+    db = args['db']
+    tables = args['tables']
+    is_delta = args['is_delta']
+    is_cover = args['is_cover']
+
+    if is_cover != 'yes':
+        return mw.returnJson(False,'暂时仅支持覆盖!')
+
+    sph_file = getConf()
+
+    import  sphinx_make
+    sph_make = sphinx_make.sphinxMake()
+
+    version_pl = getServerDir() + "/version.pl"
+    if os.path.exists(version_pl):
+        version = mw.readFile(version_pl).strip()
+        sph_make.setVersion(version)
+
+    if not sph_make.checkDbName(db):
+        return mw.returnJson(False,'保留数据库名称,不可用!')
+    is_delta_bool = False
+    if is_delta == 'yes':
+        is_delta_bool = True
+    if is_cover == 'yes':
+        tables = tables.split(',')
+        content = sph_make.makeSqlToSphinx(db, tables, is_delta_bool)
+        mw.writeFile(sph_file,content)
+        return mw.returnJson(True,'设置成功!')
+
+    return mw.returnJson(True,'测试中')
+
+
+# 全量更新
+def updateAll():
+    data = sphinxConfParse()
+    cmd = data['cmd']
+    if not 'index' in data:
+        return '无更新'
+    index = data['index']
+
+    for x in range(len(index)):
+        cmd_index = cmd + ' ' + index[x]['index'] + ' --rotate'
+        print(cmd_index)
+        os.system(cmd_index)
+    return ''
+
+#增量更新
+def updateDelta():
+    data = sphinxConfParse()
+    cmd = data['cmd']
+    if not 'index' in data:
+        return '无更新'
+    index = data['index']
+
+    for x in range(len(index)):
+        if 'delta' in index[x]:
+            cmd_index = cmd + ' ' + index[x]['delta'] + ' --rotate'
+            print(cmd_index)
+            os.system(cmd_index)
+
+            cmd_index_merge = cmd + ' --merge ' + index[x]['index'] + ' ' + index[x]['delta'] + ' --rotate'
+            print(cmd_index_merge)
+            os.system(cmd_index_merge)
+        else:
+            print(index[x]['index'],'no delta')
+
+    return ''
+
+def installPreInspection(version):
+    data = mw.execShell('arch')
+    if data[0].strip().startswith('aarch'):
+        return '不支持aarch架构'
+    return 'ok'
 
 if __name__ == "__main__":
+    version = "3.1.1"
+    version_pl = getServerDir() + "/version.pl"
+    if os.path.exists(version_pl):
+        version = mw.readFile(version_pl).strip()
+
     func = sys.argv[1]
     if func == 'status':
         print(status())
@@ -337,6 +457,8 @@ if __name__ == "__main__":
         print(initdInstall())
     elif func == 'initd_uninstall':
         print(initdUinstall())
+    elif func == 'install_pre_inspection':
+        print(installPreInspection(version))
     elif func == 'conf':
         print(getConf())
     elif func == 'config_tpl':
@@ -351,5 +473,11 @@ if __name__ == "__main__":
         print(runStatus())
     elif func == 'sphinx_cmd':
         print(sphinxCmd())
+    elif func == 'db_to_sphinx':
+        print(makeDbToSphinx())
+    elif func == 'update_all':
+        print(updateAll())
+    elif func == 'update_delta':
+        print(updateDelta())
     else:
         print('error')

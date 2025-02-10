@@ -135,7 +135,7 @@ wsPost('get_global_conf', '' ,{}, function(rdata){
 	            _text += '<tr>\
 	                <td>\
 	                    <select name="url_type_'+i+'">\
-	                        <option  value="normal" '+(_tmp[i].mode == 'normal'?'selected':'')+'>完整匹配</option>\
+	                        <option value="normal" '+(_tmp[i].mode == 'normal'?'selected':'')+'>完整匹配</option>\
 	                        <option value="regular" '+(_tmp[i].mode == 'regular'?'selected':'')+'>模糊匹配</option>\
 	                    </select>\
 	                </td>\
@@ -242,6 +242,25 @@ wsPost('get_global_conf', '' ,{}, function(rdata){
 		}
 
 		wsGlobalSetting();
+	});
+
+
+	$('#setAll').click(function(){
+		var args = "name=webstats&func=reload";
+		layer.confirm('您真的要同步所有站点吗?', {icon:3,closeBtn: 1}, function() {
+	        var e = layer.msg('正在同步,请稍候...', {icon: 16,time: 0});
+	        $.post("/plugins/run", args, function(g) {
+	            layer.close(e);
+	            if( g.status && g.data != 'ok' ) {
+	                layer.msg(g.data, {icon: 2,time: 3000,shade: 0.3,shadeClose: true});
+	            } else {
+	            	layer.msg('同步成功!', {icon: 1,time: 0});
+	            }
+	        },'json').error(function() {
+	            layer.close(e);
+	            layer.msg('操作异常!', {icon: 1});
+	        });
+	    })
 	});
 
 	

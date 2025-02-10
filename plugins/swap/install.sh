@@ -8,13 +8,17 @@ rootPath=$(dirname "$rootPath")
 serverPath=$(dirname "$rootPath")
 SYSOS=`uname`
 
-install_tmp=${rootPath}/tmp/mw_install.pl
-
 VERSION=$2
+
+# cd /www/server/mdserver-web/plugins/swap && /bin/bash install.sh install 1.1
 
 Install_swap()
 {
-	echo '正在安装脚本文件...' > $install_tmp
+	if [ -d $serverPath/swap ];then
+		exit 0
+	fi
+
+	echo '正在安装脚本文件...'
 	mkdir -p $serverPath/source
 	mkdir -p $serverPath/swap
 	echo "${VERSION}" > $serverPath/swap/version.pl
@@ -22,13 +26,13 @@ Install_swap()
 	if [ "$sysName" == "Darwin" ];then
 		pass
 	else
-		dd if=/dev/zero of=$serverPath/swap/swapfile bs=1M count=2048
+		dd if=/dev/zero of=$serverPath/swap/swapfile bs=1M count=1024
 		chmod 600 $serverPath/swap/swapfile
 		mkswap $serverPath/swap/swapfile
 		swapon $serverPath/swap/swapfile
 	fi 
 
-	echo '安装完成' > $install_tmp
+	echo '安装完成'
 
 	cd ${rootPath} && python3 ${rootPath}/plugins/swap/index.py start
 	cd ${rootPath} && python3 ${rootPath}/plugins/swap/index.py initd_install
@@ -53,7 +57,7 @@ Uninstall_swap()
 
 	rm -rf $serverPath/swap
 	
-	echo "Uninstall_swap" > $install_tmp
+	echo "Uninstall_swap"
 }
 
 action=$1

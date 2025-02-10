@@ -6,12 +6,20 @@ import os
 import time
 import re
 
-sys.path.append(os.getcwd() + "/class/core")
-import mw
+web_dir = os.getcwd() + "/web"
+if os.path.exists(web_dir):
+    sys.path.append(web_dir)
+    os.chdir(web_dir)
+
+import core.mw as mw
 
 app_debug = False
 if mw.isAppleSystem():
     app_debug = True
+
+
+import warnings
+warnings.filterwarnings('ignore', category=DeprecationWarning)
 
 
 def getPluginName():
@@ -27,8 +35,13 @@ def getServerDir():
 
 
 def getInitDFile():
-    if app_debug:
+    current_os = mw.getOs()
+    if current_os == 'darwin':
         return '/tmp/' + getPluginName()
+
+    if current_os.startswith('freebsd'):
+        return '/etc/rc.d/' + getPluginName()
+
     return '/etc/init.d/' + getPluginName()
 
 
@@ -50,7 +63,7 @@ def getConfTpl():
 def getMemPort():
     path = getServerDir() + '/memcached.env'
     content = mw.readFile(path)
-    rep = 'PORT\s*=\s*(\d*)'
+    rep = r'PORT\s*=\s*(\d*)'
     tmp = re.search(rep, content)
     return tmp.groups()[0]
 
@@ -62,13 +75,16 @@ def getArgs():
 
     if args_len == 1:
         t = args[0].strip('{').strip('}')
-        t = t.split(':')
+        if t.strip() == '':
+            tmp = []
+        else:
+            t = t.split(':')
+            tmp[t[0]] = t[1]
         tmp[t[0]] = t[1]
     elif args_len > 1:
         for i in range(len(args)):
             t = args[i].split(':')
             tmp[t[0]] = t[1]
-
     return tmp
 
 
@@ -80,8 +96,10 @@ def checkArgs(data, ck=[]):
 
 
 def status():
-    data = mw.execShell(
-        "ps -ef|grep " + getPluginName() + " |grep -v grep | grep -v python | awk '{print $2}'")
+    cmd = "ps aux|grep " + getPluginName() + " |grep -v grep | grep -v mdserver-web | awk '{print $2}'"
+    # print(cmd)
+    data = mw.execShell(cmd)
+    # print(data)
     if data[0] == '':
         return 'stop'
     return 'start'
@@ -106,8 +124,8 @@ def initDreplace():
     # systemd
     systemDir = mw.systemdCfgDir()
     systemService = systemDir + '/memcached.service'
-    systemServiceTpl = getPluginDir() + '/init.d/memcached.service.tpl'
     if os.path.exists(systemDir) and not os.path.exists(systemService):
+        systemServiceTpl = getPluginDir() + '/init.d/memcached.service.tpl'
         service_path = mw.getServerDir()
         se_content = mw.readFile(systemServiceTpl)
         se_content = se_content.replace('{$SERVER_PATH}', service_path)
@@ -130,13 +148,20 @@ def initDreplace():
 def memOp(method):
     file = initDreplace()
 
-    if not mw.isAppleSystem():
-        data = mw.execShell('systemctl ' + method + ' ' + getPluginName())
+    current_os = mw.getOs()
+    if current_os == "darwin":
+        data = mw.execShell(file + ' ' + method)
         if data[1] == '':
             return 'ok'
         return data[1]
 
-    data = mw.execShell(file + ' ' + method)
+    if current_os.startswith("freebsd"):
+        data = mw.execShell('service ' + getPluginName() + ' ' + method)
+        if data[1] == '':
+            return 'ok'
+        return data[1]
+
+    data = mw.execShell('systemctl ' + method + ' ' + getPluginName())
     if data[1] == '':
         return 'ok'
     return data[1]
@@ -188,10 +213,10 @@ def runInfo():
 
         conf = mw.readFile(getServerDir() + '/memcached.env')
         result['bind'] = re.search('IP=(.+)', conf).groups()[0]
-        result['port'] = int(re.search('PORT=(\d+)', conf).groups()[0])
-        result['maxconn'] = int(re.search('MAXCONN=(\d+)', conf).groups()[0])
+        result['port'] = int(re.search('PORT=(\\d+)', conf).groups()[0])
+        result['maxconn'] = int(re.search('MAXCONN=(\\d+)', conf).groups()[0])
         result['cachesize'] = int(
-            re.search('CACHESIZE=(\d+)', conf).groups()[0])
+            re.search('CACHESIZE=(\\d+)', conf).groups()[0])
         return mw.getJson(result)
     except Exception as e:
         return mw.getJson({})
@@ -219,8 +244,14 @@ def saveConf():
 
 
 def initdStatus():
-    if mw.isAppleSystem():
+    current_os = mw.getOs()
+    if current_os == 'darwin':
         return "Apple Computer does not support"
+
+    if current_os.startswith('freebsd'):
+        initd_bin = getInitDFile()
+        if os.path.exists(initd_bin):
+            return 'ok'
 
     shell_cmd = 'systemctl status ' + \
         getPluginName() + ' | grep loaded | grep "enabled;"'
@@ -231,17 +262,34 @@ def initdStatus():
 
 
 def initdInstall():
-    if mw.isAppleSystem():
+    current_os = mw.getOs()
+    if current_os == 'darwin':
         return "Apple Computer does not support"
+
+    # freebsd initd install
+    if current_os.startswith('freebsd'):
+        import shutil
+        source_bin = initDreplace()
+        initd_bin = getInitDFile()
+        shutil.copyfile(source_bin, initd_bin)
+        mw.execShell('chmod +x ' + initd_bin)
+        mw.execShell('sysrc ' + getPluginName() + '_enable="YES"')
+        return 'ok'
 
     mw.execShell('systemctl enable ' + getPluginName())
     return 'ok'
 
 
 def initdUinstall():
-    if not app_debug:
-        if mw.isAppleSystem():
-            return "Apple Computer does not support"
+    current_os = mw.getOs()
+    if current_os == 'darwin':
+        return "Apple Computer does not support"
+
+    if current_os.startswith('freebsd'):
+        initd_bin = getInitDFile()
+        os.remove(initd_bin)
+        mw.execShell('sysrc ' + getPluginName() + '_enable="NO"')
+        return 'ok'
 
     mw.execShell('systemctl disable ' + getPluginName())
     return 'ok'

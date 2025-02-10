@@ -7,9 +7,14 @@ import time
 import re
 import json
 
-sys.path.append(os.getcwd() + "/class/core")
-import mw
-import site_api
+web_dir = os.getcwd() + "/web"
+if os.path.exists(web_dir):
+    sys.path.append(web_dir)
+    os.chdir(web_dir)
+
+import core.mw as mw
+import thisdb
+from utils.site import sites as MwSites
 
 app_debug = False
 if mw.isAppleSystem():
@@ -57,13 +62,13 @@ def getConf():
 
 
 def getConfInc():
-    return getServerDir() + '/phpmyadmin/config.inc.php'
+    return getServerDir() + "/" + getCfg()['path'] + '/config.inc.php'
 
 
 def getPort():
     file = getConf()
     content = mw.readFile(file)
-    rep = 'listen\s*(.*);'
+    rep = r'listen\s*(.*);'
     tmp = re.search(rep, content)
     return tmp.groups()[0].strip()
 
@@ -74,20 +79,34 @@ def getHomePage():
         ip = '127.0.0.1'
         if not mw.isAppleSystem():
             ip = mw.getLocalIp()
-        url = 'http://' + ip + ':' + port + '/phpmyadmin/index.php'
+
+        cfg = getCfg()
+        auth = cfg['username']+':'+cfg['password']
+        rand_path = cfg['path']
+        url = 'http://' + auth + '@' + ip + ':' + port + '/' + rand_path + '/index.php'
         return mw.returnJson(True, 'OK', url)
     except Exception as e:
         return mw.returnJson(False, '插件未启动!')
 
 
 def getPhpVer(expect=55):
-    import json
-    v = site_api.site_api().getPhpVersion()
-    v = json.loads(v)
+    php_vers = MwSites.instance().getPhpVersion()
+    v = php_vers['data']
+    is_find = False
     for i in range(len(v)):
-        t = int(v[i]['version'])
-        if (t >= expect):
+        t = str(v[i]['version'])
+        if (t == expect):
+            is_find = True
             return str(t)
+        expect_str = str(expect)
+        new_ex = expect_str[0:1]+"."+expect_str[1:2]
+        if t.find(new_ex) > -1:
+            is_find = True
+            return str(t)
+    if not is_find:
+        if len(v) > 1:
+            return v[1]['version']
+        return v[0]['version']
     return str(expect)
 
 
@@ -110,20 +129,35 @@ def contentReplace(content):
     blowfish_secret = tmp[0].strip()
     # print php_ver
     php_conf_dir = mw.getServerDir() + '/web_conf/php/conf'
-    content = content.replace('{$ROOT_PATH}', mw.getRootDir())
+    content = content.replace('{$ROOT_PATH}', mw.getFatherDir())
     content = content.replace('{$SERVER_PATH}', service_path)
     content = content.replace('{$PHP_CONF_PATH}', php_conf_dir)
     content = content.replace('{$PHP_VER}', php_ver)
     content = content.replace('{$BLOWFISH_SECRET}', blowfish_secret)
 
     cfg = getCfg()
-    if (cfg['choose'] == ""):
+
+    if cfg['choose'] == "mysql":
         content = content.replace('{$CHOOSE_DB}', 'mysql')
         content = content.replace('{$CHOOSE_DB_DIR}', 'mysql')
+    elif cfg['choose'] == "mysql-community":
+        content = content.replace('{$CHOOSE_DB}', 'mysql-community')
+        content = content.replace('{$CHOOSE_DB_DIR}', 'mysql-community')
+    elif cfg['choose'] == "mysql-apt":
+        content = content.replace('{$CHOOSE_DB}', 'mysql')
+        content = content.replace('{$CHOOSE_DB_DIR}', 'mysql-apt')
+    elif cfg['choose'] == "mysql-yum":
+        content = content.replace('{$CHOOSE_DB}', 'mysql')
+        content = content.replace('{$CHOOSE_DB_DIR}', 'mysql-yum')
     else:
         content = content.replace('{$CHOOSE_DB}', 'MariaDB')
         content = content.replace('{$CHOOSE_DB_DIR}', 'mariadb')
 
+    content = content.replace('{$PMA_PATH}', cfg['path'])
+
+    port = cfg["port"]
+    rep = r'listen\s*(.*);'
+    content = re.sub(rep, "listen " + port + ';', content)
     return content
 
 
@@ -132,7 +166,8 @@ def initCfg():
     if not os.path.exists(cfg):
         data = {}
         data['port'] = '888'
-        data['choose'] = ''
+        data['choose'] = 'mysql'
+        data['path'] = ''
         data['username'] = 'admin'
         data['password'] = 'admin'
         mw.writeFile(cfg, json.dumps(data))
@@ -161,19 +196,63 @@ def returnCfg():
 
 def status():
     conf = getConf()
-    conf_inc = getServerDir() + '/phpmyadmin/config.inc.php'
+    conf_inc = getServerDir() + "/" + getCfg()["path"] + '/config.inc.php'
     # 两个文件都在，才算启动成功
     if os.path.exists(conf) and os.path.exists(conf_inc):
         return 'start'
     return 'stop'
 
 
+def __release_port(port):
+    from collections import namedtuple
+    try:
+        from utils.firewall import Firewall as MwFirewall
+        MwFirewall.instance().addAcceptPort(port, 'phpMyAdmin默认端口', 'port')
+        return port
+    except Exception as e:
+        return "Release failed {}".format(e)
+
+
+def __delete_port(port):
+    from collections import namedtuple
+    try:
+        from utils.firewall import Firewall as MwFirewall
+        MwFirewall.instance().delAcceptPortCmd(port, 'tcp')
+        return port
+    except Exception as e:
+        return "Release failed {}".format(e)
+
+
+def openPort():
+    conf = getCfg()
+    port = conf['port']
+    for i in [port]:
+        __release_port(i)
+    return True
+
+
+def delPort():
+    conf = getCfg()
+    port = conf['port']
+    for i in [port]:
+        __delete_port(i)
+    return True
+
+
 def start():
     initCfg()
+    openPort()
+
+    pma_dir = getServerDir() + "/phpmyadmin"
+    if os.path.exists(pma_dir):
+        rand_str = mw.getRandomString(6)
+        rand_str = rand_str.lower()
+        pma_dir_dst = pma_dir + "_" + rand_str
+        mw.execShell("mv " + pma_dir + " " + pma_dir_dst)
+        setCfg('path', 'phpmyadmin_' + rand_str)
 
     file_tpl = getPluginDir() + '/conf/phpmyadmin.conf'
     file_run = getConf()
-
     if not os.path.exists(file_run):
         centent = mw.readFile(file_tpl)
         centent = contentReplace(centent)
@@ -181,17 +260,19 @@ def start():
 
     pma_path = getServerDir() + '/pma.pass'
     if not os.path.exists(pma_path):
-        username = mw.getRandomString(10)
-        pass_cmd = username + ':' + mw.hasPwd(username)
+        username = mw.getRandomString(8)
+        password = mw.getRandomString(10)
+        pass_cmd = username + ':' + mw.hasPwd(password)
         setCfg('username', username)
-        setCfg('password', username)
+        setCfg('password', password)
         mw.writeFile(pma_path, pass_cmd)
 
-    tmp = getServerDir() + '/phpmyadmin/tmp'
+    tmp = getServerDir() + "/" + getCfg()["path"] + '/tmp'
     if not os.path.exists(tmp):
         os.mkdir(tmp)
+        mw.execShell("chown -R www:www " + tmp)
 
-    conf_run = getServerDir() + '/phpmyadmin/config.inc.php'
+    conf_run = getServerDir() + "/" + getCfg()["path"] + '/config.inc.php'
     if not os.path.exists(conf_run):
         conf_tpl = getPluginDir() + '/conf/config.inc.php'
         centent = mw.readFile(conf_tpl)
@@ -214,6 +295,7 @@ def stop():
     conf = getConf()
     if os.path.exists(conf):
         os.remove(conf)
+    delPort()
     mw.restartWeb()
     return 'ok'
 
@@ -223,6 +305,12 @@ def restart():
 
 
 def reload():
+    file_tpl = getPluginDir() + '/conf/phpmyadmin.conf'
+    file_run = getConf()
+    if os.path.exists(file_run):
+        centent = mw.readFile(file_tpl)
+        centent = contentReplace(centent)
+        mw.writeFile(file_run, centent)
     return start()
 
 
@@ -281,9 +369,11 @@ def setPmaPort():
     if not os.path.exists(file):
         return mw.returnJson(False, '插件未启动!')
     content = mw.readFile(file)
-    rep = 'listen\s*(.*);'
+    rep = r'listen\s*(.*);'
     content = re.sub(rep, "listen " + port + ';', content)
     mw.writeFile(file, content)
+
+    setCfg("port", port)
     mw.restartWeb()
     return mw.returnJson(True, '修改成功!')
 
@@ -297,11 +387,13 @@ def setPmaChoose():
     choose = args['choose']
     setCfg('choose', choose)
 
-    conf_run = getServerDir() + '/phpmyadmin/config.inc.php'
+    pma_path = getCfg()['path']
+    conf_run = getServerDir() + "/" + pma_path + '/config.inc.php'
+
     conf_tpl = getPluginDir() + '/conf/config.inc.php'
-    centent = mw.readFile(conf_tpl)
-    centent = contentReplace(centent)
-    mw.writeFile(conf_run, centent)
+    content = mw.readFile(conf_tpl)
+    content = contentReplace(content)
+    mw.writeFile(conf_run, content)
 
     mw.restartWeb()
     return mw.returnJson(True, '修改成功!')
@@ -345,6 +437,25 @@ def setPmaPassword():
     return mw.returnJson(True, '修改成功!')
 
 
+def setPmaPath():
+    args = getArgs()
+    data = checkArgs(args, ['path'])
+    if not data[0]:
+        return data[1]
+
+    path = args['path']
+
+    if len(path) < 5:
+        return mw.returnJson(False, '不能小于5位!')
+
+    old_path = getServerDir() + "/" + getCfg()['path']
+    new_path = getServerDir() + "/" + path
+
+    mw.execShell("mv " + old_path + " " + new_path)
+    setCfg('path', path)
+    return mw.returnJson(True, '修改成功!')
+
+
 def accessLog():
     return getServerDir() + '/access.log'
 
@@ -353,9 +464,37 @@ def errorLog():
     return getServerDir() + '/error.log'
 
 
-def Version():
+def installVersion():
     return mw.readFile(getServerDir() + '/version.pl')
 
+def pluginsDbSupport():
+    data = {}
+
+    data['installed'] = 'no'
+    install_path = getServerDir()
+    if not os.path.exists(install_path):
+        return mw.returnJson(True, 'ok', data) 
+
+    data['installed'] = 'ok'
+    data['status'] = status()
+    if (data['status'] == 'stop'):
+        return mw.returnJson(True, 'ok', data)
+
+    data['cfg'] = getCfg()
+    port = getPort()
+    ip = '127.0.0.1'
+    if not mw.isAppleSystem():
+        ip = thisdb.getOption('server_ip')
+
+    cfg = data['cfg']
+    auth = cfg['username']+':'+cfg['password']
+    rand_path = cfg['path']
+    home_page = 'http://' + auth + '@' + ip + ':' + port + '/' + rand_path + '/index.php'
+
+    data['home_page'] = home_page
+    data['version'] = installVersion().strip()
+
+    return mw.returnJson(True, 'ok', data)
 
 if __name__ == "__main__":
     func = sys.argv[1]
@@ -372,7 +511,7 @@ if __name__ == "__main__":
     elif func == 'conf':
         print(getConf())
     elif func == 'version':
-        print(Version())
+        print(installVersion())
     elif func == 'get_cfg':
         print(returnCfg())
     elif func == 'config_inc':
@@ -395,9 +534,13 @@ if __name__ == "__main__":
         print(setPmaUsername())
     elif func == 'set_pma_password':
         print(setPmaPassword())
+    elif func == 'set_pma_path':
+        print(setPmaPath())
     elif func == 'access_log':
         print(accessLog())
     elif func == 'error_log':
         print(errorLog())
+    elif func == 'plugins_db_support':
+        print(pluginsDbSupport())
     else:
         print('error')

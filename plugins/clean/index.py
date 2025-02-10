@@ -5,8 +5,12 @@ import io
 import os
 import time
 
-sys.path.append(os.getcwd() + "/class/core")
-import mw
+web_dir = os.getcwd() + "/web"
+if os.path.exists(web_dir):
+    sys.path.append(web_dir)
+    os.chdir(web_dir)
+
+import core.mw as mw
 
 app_debug = False
 if mw.isAppleSystem():
@@ -53,34 +57,150 @@ def getArgs():
     return tmp
 
 
+def getLockFile():
+    return getServerDir() + "/installed_lock.pl"
+
+
+def runLog():
+    return getServerDir() + "/clean.log"
+
+
 def status():
-    if os.path.exists(getConf()):
+    initConf()
+    if os.path.exists(getLockFile()):
         return "start"
     return 'stop'
 
 
+def initConf():
+    conf = getConf()
+    if not os.path.exists(conf):
+        content = ""
+
+        clog = [
+            "/var/log/cron-*",
+            "/var/log/maillog-*",
+            "/var/log/secure-*",
+            "/var/log/spooler-*",
+            "/var/log/yum.log-*",
+            "/var/log/messages-*",
+            "/var/log/btmp-*",
+            "/var/log/auth.*",
+            "/var/log/messages.*",
+            "/var/log/debug.*",
+            "/var/log/syslog.*",
+            "/var/log/btmp.*",
+            "/var/log/sa/sa*",
+            "/var/log/sysstat/sa*",
+            "/var/log/atop/atop*",
+            "/var/log/anaconda/*.log",
+
+            "/var/log/dpkg.log.*",
+            "/var/log/alternatives.log.*",
+            "/var/log/user.log.*",
+            "/var/log/kern.log.*",
+            "/var/log/daemon.log.*",
+
+            "/var/log/*.gz",
+            "/var/log/*.xz",
+            "/var/log/*.log.*",
+
+            "/var/log/audit/audit.log.*",
+            "/var/log/hawkey.log-*",
+            "/var/log/apt/*.gz",
+            "/var/log/apt/*.xz",
+            "/var/log/rhsm/rhsm.log-*",
+            "/var/log/rhsm/rhsmcertd.log-*",
+            "/var/log/exim4/*.gz",
+            "/var/log/journal/*",
+            "/var/spool/clientmqueue/*",
+           
+            "/tmp/yum_save_*",
+            "/tmp/tmp.*",
+
+            "/www/server/dztasks/logs/dztasks.*.log",
+            "/www/server/dztasks/logs/dztasks_*",
+        ]
+        for i in clog:
+            content += i + "\n"
+
+         # 常用日志
+        clogcom = [
+            "/var/log/messages",
+            "/var/log/btmp",
+            "/var/log/wtmp",
+            "/var/log/secure",
+            "/var/log/lastlog",
+            "/var/log/cron",
+            "/www/wwwlogs",
+            "/www/server/rsyncd",
+            "/www/server/acme_pandominassl_apply",
+            "/www/server/sphinx/index",
+            "/www/server/mongodb/logs",
+            "/www/server/php/53/var/log",
+            "/www/server/php/54/var/log",
+            "/www/server/php/55/var/log",
+            "/www/server/php/56/var/log",
+            "/www/server/php/70/var/log",
+            "/www/server/php/71/var/log",
+            "/www/server/php/72/var/log",
+            "/www/server/php/73/var/log",
+            "/www/server/php/74/var/log",
+            "/www/server/php/80/var/log",
+            "/www/server/php/81/var/log",
+            "/www/server/php/82/var/log",
+            "/www/server/php/83/var/log",
+            "/www/server/php/84/var/log",
+            "/www/server/openresty/nginx/logs",
+            "/www/server/phpmyadmin",
+            "/www/server/redis/data",
+            "/www/server/alist/data/log",
+            "/www/server/dztasks/logs",
+            "/www/server/rsyncd/lsyncd.log"
+            "/www/server/cron",
+        ]
+        for i in clogcom:
+            if os.path.exists(i):
+                content += i + "\n"
+
+        # 清理日志
+        rootDir = "/var/log"
+
+        l = os.listdir(rootDir)
+        for x in range(len(l)):
+            abspath = rootDir + "/" + l[x]
+            content += abspath + "\n"
+        mw.writeFile(conf, content)
+
+
 def start():
-    file = initDreplace()
-    data = mw.execShell(file + ' start')
-    if data[1] == '':
+    initConf()
+
+    lock_file = getLockFile()
+    if not os.path.exists(lock_file):
+        mw.writeFile(lock_file, "")
+
+        import tool_task
+        tool_task.createBgTask()
         return 'ok'
+
     return 'fail'
 
 
 def stop():
-    file = initDreplace()
-    data = mw.execShell(file + ' stop')
-    if data[1] == '':
+    initConf()
+    lock_file = getLockFile()
+    if os.path.exists(lock_file):
+        os.remove(lock_file)
+        import tool_task
+        tool_task.removeBgTask()
         return 'ok'
+
     return 'fail'
 
 
 def reload():
-    file = initDreplace()
-    data = mw.execShell(file + ' reload')
-    if data[1] == '':
-        return 'ok'
-    return 'fail'
+    return 'ok'
 
 
 def get_filePath_fileName_fileExt(filename):
@@ -93,15 +213,20 @@ def cleanFileLog(path):
     filepath, shotname, extension = get_filePath_fileName_fileExt(path)
     if extension == ".log":
         cmd = "echo \"\" > " + path
+        tmp = mw.execShell(cmd)
+        if tmp[1] != "":
+            cmd += " | error:" + tmp[1].strip()
         print(cmd)
-        print(mw.execShell(cmd))
 
 
 def cleanSelfFileLog(path):
     filepath, shotname, extension = get_filePath_fileName_fileExt(path)
-    cmd = "echo \"\" > " + path
-    print(cmd)
-    print(mw.execShell(cmd))
+    if extension == ".log":
+        cmd = "echo \"\" > " + path
+        tmp = mw.execShell(cmd)
+        if tmp[1] != "":
+            cmd += " | error:" + tmp[1].strip()
+        print(cmd)
 
 
 def cleanDirLog(path):
@@ -114,72 +239,38 @@ def cleanDirLog(path):
             cleanDirLog(abspath)
 
 
+def cleanRun():
+    plugin_dir = getPluginDir()
+    log_file = getServerDir()+'/clean.log'
+    cmd = 'cd '+mw.getPanelDir()+' && python3 '+plugin_dir+'/index.py clean > '+log_file
+    os.system(cmd)
+    return mw.returnJson(True, '执行成功!')
+
 def cleanLog():
-    # 清理日志
-    rootDir = "/var/log"
-    print("clean start")
-
-    clog = [
-        "rm -rf /var/log/cron-*",
-        "rm -rf /var/log/maillog-*",
-        "rm -rf /var/log/secure-*",
-        "rm -rf /var/log/spooler-*",
-        "rm -rf /var/log/yum.log-*",
-        "rm -rf /var/log/messages-*",
-        "rm -rf /var/log/btmp-*",
-        "rm -rf /var/log/audit/audit.log.*",
-        "rm -rf /var/log/rhsm/rhsm.log-*",
-        "rm -rf /var/log/rhsm/rhsmcertd.log-*",
-        "rm -rf /tmp/yum_save_*",
-        "rm -rf /tmp/tmp.*",
-    ]
-
-    for i in clog:
-        print(i)
-        mw.execShell(i)
-
-    # 常用日志
-    clogcom = [
-        "/var/log/messages",
-        "/var/log/btmp",
-        "/var/log/wtmp",
-        "/var/log/secure",
-        "/var/log/lastlog",
-        "/var/log/cron",
-    ]
-    for i in clogcom:
-        if os.path.exists(i):
-            mw.execShell("echo \"\" > " + i)
-
-    l = os.listdir(rootDir)
-    for x in range(len(l)):
-        abspath = rootDir + "/" + l[x]
-        if os.path.isfile(abspath):
-            cleanFileLog(abspath)
-
-        if os.path.isdir(abspath):
-            cleanDirLog(abspath)
-
-    print("conf clean")
-
-    confFile = getServerDir()
-    # mw.readFile()
-    confFile = confFile + "/clean.conf"
-    clist = mw.readFile(confFile).strip()
+    conf = getConf()
+    clist = mw.readFile(conf).strip()
     clist = clist.split("\n")
 
     for x in clist:
         abspath = x.strip()
+
+        if abspath.find('*') > 1:
+            cmd = 'rm -rf ' + abspath
+            print(cmd)
+            data = mw.execShell(cmd)
+            # print(data)
+            continue
+
         if os.path.exists(abspath):
             if os.path.isfile(abspath):
                 cleanSelfFileLog(abspath)
+                continue
 
             if os.path.isdir(abspath):
                 cleanDirLog(abspath)
-    print("conf clean end")
+                continue
 
-    print("clean end")
-
+    
 if __name__ == "__main__":
     func = sys.argv[1]
     if func == 'status':
@@ -194,7 +285,11 @@ if __name__ == "__main__":
         print(reload())
     elif func == 'conf':
         print(getConf())
+    elif func == 'run_log':
+        print(runLog())
     elif func == 'clean':
         cleanLog()
+    elif func == 'clean_run':
+        print(cleanRun())
     else:
         print('error')

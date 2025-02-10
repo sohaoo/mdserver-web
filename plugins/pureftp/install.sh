@@ -7,7 +7,10 @@ rootPath=$(dirname "$curPath")
 rootPath=$(dirname "$rootPath")
 serverPath=$(dirname "$rootPath")
 
-install_tmp=${rootPath}/tmp/mw_install.pl
+
+if [ -f ${rootPath}/bin/activate ];then
+	source ${rootPath}/bin/activate
+fi
 
 sysName=`uname`
 echo "use system: ${sysName}"
@@ -46,10 +49,11 @@ Install_pureftp()
 
 	# https://github.com/jedisct1/pure-ftpd/releases/download/1.0.49/pure-ftpd-1.0.49.tar.gz
 	# https://download.pureftpd.org/pub/pure-ftpd/releases/pure-ftpd-1.0.49.tar.gz
-	# DOWNLOAD=https://github.com/jedisct1/pure-ftpd/releases/download/${VER}/pure-ftpd-${VER}.tar.gz
+	
 
 	VER=$1
-	DOWNLOAD=https://download.pureftpd.org/pub/pure-ftpd/releases/pure-ftpd-${VER}.tar.gz
+	DOWNLOAD=https://github.com/jedisct1/pure-ftpd/releases/download/${VER}/pure-ftpd-${VER}.tar.gz
+	# DOWNLOAD=https://download.pureftpd.org/pub/pure-ftpd/releases/pure-ftpd-${VER}.tar.gz
 
 	# curl -sSLo pure-ftpd-1.0.49.tar.gz https://download.pureftpd.org/pub/pure-ftpd/releases/pure-ftpd-1.0.49.tar.gz
 	if [ ! -f $serverPath/source/pureftp/pure-ftpd-${VER}.tar.gz ];then
@@ -63,11 +67,12 @@ Install_pureftp()
 		md5_check=`md5sum $serverPath/source/pureftp/pure-ftpd-${VER}.tar.gz  | awk '{print $1}'`
 		if [ "${md5_ok}" == "${md5_check}" ]; then
 			echo "pure-ftpd file  check ok"
-		else
-			# 重新下载
-			rm -rf $serverPath/source/pureftp/pure-ftpd-${VER}
-			curl -sSLo $serverPath/source/pureftp/pure-ftpd-${VER}.tar.gz $DOWNLOAD
 		fi
+	fi
+
+	# Last Download Method
+	if [ ! -f $serverPath/source/pureftp/pure-ftpd-${VER}.tar.gz ];then
+		wget --no-check-certificate -O $serverPath/source/pureftp/pure-ftpd-${VER}.tar.gz https://dl.midoks.icu/soft/ftp/pure-ftpd-${VER}.tar.gz -T 3
 	fi
 
 	if [ ! -d $serverPath/source/pureftp/pure-ftpd-${VER} ];then
@@ -75,16 +80,33 @@ Install_pureftp()
 	fi
 
 	cd $serverPath/source/pureftp/pure-ftpd-${VER} &&  ./configure --prefix=${serverPath}/pureftp \
-　　 	--with-everything && make && make install && make clean
+　　 	CFLAGS=-O2 \
+		--with-puredb \
+		--with-quotas \
+		--with-cookie \
+		--with-virtualhosts \
+		--with-diraliases \
+		--with-sysquotas \
+		--with-ratios \
+		--with-altlog \
+		--with-paranoidmsg \
+		--with-shadow \
+		--with-welcomemsg \
+		--with-throttling \
+		--with-uploadscript \
+		--with-language=english \
+		--with-rfc2640 \
+		--with-ftpwho \
+		--with-tls && make && make install && make clean
 	
 	if [ -d ${serverPath}/pureftp ];then 
 		echo "${1}" > ${serverPath}/pureftp/version.pl
-		echo '安装完成' > $install_tmp
+		echo '安装完成'
 
 		cd ${rootPath} && python3 ${rootPath}/plugins/pureftp/index.py start
 		cd ${rootPath} && python3 ${rootPath}/plugins/pureftp/index.py initd_install
 	else
-		echo '安装失败' > $install_tmp
+		echo '安装失败'
 	fi
 }
 
@@ -104,7 +126,7 @@ Uninstall_pureftp()
 	rm -rf ${serverPath}/pureftp
 	userdel ftp
 	groupdel ftp
-	echo '卸载完成' > $install_tmp
+	echo '卸载完成'
 }
 
 action=$1

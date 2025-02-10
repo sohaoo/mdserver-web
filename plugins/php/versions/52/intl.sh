@@ -1,5 +1,5 @@
 #!/bin/bash
-PATH=/bin:/sbin:/usr/bin:/usr/sbin:/usr/local/bin:/usr/local/sbin:~/bin
+PATH=/bin:/sbin:/usr/bin:/usr/sbin:/usr/local/bin:/usr/local/sbin:~/bin:/opt/homebrew/bin
 export PATH
 
 curPath=`pwd`
@@ -35,7 +35,7 @@ Install_lib()
 		return
 	fi
 	
-	cd $serverPath/mdserver-web/plugins/php/lib && /bin/bash icu.sh
+	cd $rootPath/plugins/php/lib && /bin/bash icu.sh
 
 	if [ ! -f "$extFile" ];then
 
@@ -47,8 +47,9 @@ Install_lib()
 		cd $php_lib && tar xvf ${LIBNAME}-${LIBV}.tgz
 		cd ${LIBNAME}-${LIBV}
 		$serverPath/php/$version/bin/phpize
-		./configure --with-php-config=$serverPath/php/$version/bin/php-config \
-		--with-icu-dir=${serverPath}/lib/icu
+
+		# --with-icu-dir=${serverPath}/lib/icu
+		./configure --with-php-config=$serverPath/php/$version/bin/php-config
 		make clean && make && make install && make clean
 		
 	fi

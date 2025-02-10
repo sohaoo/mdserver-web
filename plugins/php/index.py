@@ -11,16 +11,12 @@ import shutil
 # reload(sys)
 # sys.setdefaultencoding('utf8')
 
-sys.path.append(os.getcwd() + "/class/core")
-# sys.path.append("/usr/local/lib/python3.6/site-packages")
+web_dir = os.getcwd() + "/web"
+if os.path.exists(web_dir):
+    sys.path.append(web_dir)
+    os.chdir(web_dir)
 
-import mw
-
-if mw.isAppleSystem():
-    cmd = 'ls /usr/local/lib/ | grep python  | cut -d \\  -f 1 | awk \'END {print}\''
-    info = mw.execShell(cmd)
-    p = "/usr/local/lib/" + info[0].strip() + "/site-packages"
-    sys.path.append(p)
+import core.mw as mw
 
 app_debug = False
 if mw.isAppleSystem():
@@ -40,8 +36,12 @@ def getServerDir():
 
 
 def getInitDFile(version):
-    if app_debug:
+    current_os = mw.getOs()
+    if current_os == 'darwin':
         return '/tmp/' + getPluginName()
+
+    if current_os.startswith('freebsd'):
+        return '/etc/rc.d/' + getPluginName()
     return '/etc/init.d/' + getPluginName() + version
 
 
@@ -52,13 +52,15 @@ def getArgs():
 
     if args_len == 1:
         t = args[0].strip('{').strip('}')
-        t = t.split(':')
-        tmp[t[0]] = t[1]
+        if t.strip() == '':
+            tmp = []
+        else:
+            t = t.split(':', 1)
+            tmp[t[0]] = t[1]
     elif args_len > 1:
         for i in range(len(args)):
             t = args[i].split(':')
             tmp[t[0]] = t[1]
-
     return tmp
 
 
@@ -74,13 +76,19 @@ def getConf(version):
     return path
 
 
-def getFpmConfFile(version):
-    return getServerDir() + '/' + version + '/etc/php-fpm.d/www.conf'
+def getFpmConfFile(version, pool='www'):
+    args = getArgs()
+    if 'pool' in args:
+        pool = args['pool']
+    return getServerDir() + '/' + version + '/etc/php-fpm.d/'+pool+'.conf'
+
+def getFpmFile(version):
+    return getServerDir() + '/' + version + '/etc/php-fpm.conf'
 
 
 def status_progress(version):
     # ps -ef|grep 'php/81' |grep -v grep | grep -v python | awk '{print $2}
-    cmd = "ps -ef|grep 'php/" + version + \
+    cmd = "ps aux|grep 'php/" + version + \
         "' |grep -v grep | grep -v python | awk '{print $2}'"
     data = mw.execShell(cmd)
     if data[0] == '':
@@ -91,7 +99,7 @@ def status_progress(version):
 def getPhpSocket(version):
     path = getFpmConfFile(version)
     content = mw.readFile(path)
-    rep = 'listen\s*=\s*(.*)'
+    rep = r'listen\s*=\s*(.*)'
     tmp = re.search(rep, content)
     return tmp.groups()[0].strip()
 
@@ -111,10 +119,11 @@ def status(version):
 
 def contentReplace(content, version):
     service_path = mw.getServerDir()
-    content = content.replace('{$ROOT_PATH}', mw.getRootDir())
+    content = content.replace('{$ROOT_PATH}', mw.getFatherDir())
     content = content.replace('{$SERVER_PATH}', service_path)
     content = content.replace('{$PHP_VERSION}', version)
     content = content.replace('{$LOCAL_IP}', mw.getLocalIp())
+    content = content.replace('{$SSL_CRT}', mw.getSslCrt())
 
     if mw.isAppleSystem():
         # user = mw.execShell(
@@ -122,15 +131,15 @@ def contentReplace(content, version):
         content = content.replace('{$PHP_USER}', 'nobody')
         content = content.replace('{$PHP_GROUP}', 'nobody')
 
-        rep = 'listen.owner\s*=\s*(.+)\r?\n'
+        rep = r'listen.owner\s*=\s*(.+)\r?\n'
         val = ';listen.owner = nobody\n'
         content = re.sub(rep, val, content)
 
-        rep = 'listen.group\s*=\s*(.+)\r?\n'
+        rep = r'listen.group\s*=\s*(.+)\r?\n'
         val = ';listen.group = nobody\n'
         content = re.sub(rep, val, content)
 
-        rep = 'user\s*=\s*(.+)\r?\n'
+        rep = r'user\s*=\s*(.+)\r?\n'
         val = ';user = nobody\n'
         content = re.sub(rep, val, content)
 
@@ -146,22 +155,26 @@ def contentReplace(content, version):
 
 def makeOpenrestyConf():
     phpversions = ['00', '52', '53', '54', '55', '56',
-                   '70', '71', '72', '73', '74', '80', '81', '82']
+                   '70', '71', '72', '73', '74', '80', '81', '82', '83','84']
 
     sdir = mw.getServerDir()
 
     dst_dir = sdir + '/web_conf/php'
-    dst_dir_conf = sdir + '/web_conf/php/conf'
     if not os.path.exists(dst_dir):
         mw.execShell('mkdir -p ' + dst_dir)
 
+    dst_dir_conf = sdir + '/web_conf/php/conf'
     if not os.path.exists(dst_dir_conf):
         mw.execShell('mkdir -p ' + dst_dir_conf)
 
-    d_pathinfo = sdir + '/web_conf/php/pathinfo.conf'
-    if not os.path.exists(d_pathinfo):
-        s_pathinfo = getPluginDir() + '/conf/pathinfo.conf'
-        shutil.copyfile(s_pathinfo, d_pathinfo)
+    dst_dir_upstream = sdir + '/web_conf/php/upstream'
+    if not os.path.exists(dst_dir_upstream):
+        mw.execShell('mkdir -p ' + dst_dir_upstream)
+
+    dst_pathinfo = sdir + '/web_conf/php/pathinfo.conf'
+    if not os.path.exists(dst_pathinfo):
+        src_pathinfo = getPluginDir() + '/conf/pathinfo.conf'
+        shutil.copyfile(src_pathinfo, dst_pathinfo)
 
     info = getPluginDir() + '/info.json'
     content = mw.readFile(info)
@@ -173,19 +186,31 @@ def makeOpenrestyConf():
         dfile = sdir + '/web_conf/php/conf/enable-php-' + x + '.conf'
         if not os.path.exists(dfile):
             if x == '00':
-                mw.writeFile(dfile, 'set $PHP_ENV 0;')
+                mw.writeFile(dfile, '')
             else:
-                w_content = contentReplace(tpl_content, x)
-                mw.writeFile(dfile, w_content)
+                content = contentReplace(tpl_content, x)
+                mw.writeFile(dfile, content)
 
-    # php-fpm status
-    # for version in phpversions:
-    #     dfile = sdir + '/web_conf/php/status/phpfpm_status_' + version + '.conf'
-    #     tpl = getPluginDir() + '/conf/phpfpm_status.conf'
-    #     if not os.path.exists(dfile):
-    #         content = mw.readFile(tpl)
-    #         content = contentReplace(content, version)
-    #         mw.writeFile(dfile, content)
+    upstream_tpl = getPluginDir() + '/conf/enable-php-upstream.conf'
+    upstream_tpl_content = mw.readFile(upstream_tpl)
+    for x in phpversions:
+        dfile = sdir + '/web_conf/php/upstream/enable-php-' + x + '.conf'
+        if not os.path.exists(dfile):
+            if x == '00':
+                mw.writeFile(dfile, '')
+            else:
+                content = contentReplace(upstream_tpl_content, x)
+                mw.writeFile(dfile, content)
+
+    vhost_dir = mw.getServerDir() + '/web_conf/nginx/vhost'
+    write_php_upstream_conf = mw.getServerDir()+'/web_conf/php/upstream/*.conf;'
+    if not os.path.exists(vhost_dir):
+        mw.execShell('mkdir -p ' + vhost_dir)
+
+    vhost_php_upstream = vhost_dir+'/0.php_upstream.conf'
+    if not os.path.exists(vhost_php_upstream):
+        mw.writeFile(vhost_php_upstream,'include '+write_php_upstream_conf)
+
 
 
 def phpPrependFile(version):
@@ -211,15 +236,16 @@ def phpFpmReplace(version):
             mw.writeFile(desc_php_fpm, content)
 
 
-def phpFpmWwwReplace(version):
+
+def phpFpmPoolReplace(version, pool = 'www'):
     service_php_fpm_dir = getServerDir() + '/' + version + '/etc/php-fpm.d/'
 
     if not os.path.exists(service_php_fpm_dir):
         os.mkdir(service_php_fpm_dir)
 
-    service_php_fpmwww = service_php_fpm_dir + '/www.conf'
+    service_php_fpmwww = service_php_fpm_dir + '/'+pool+'.conf'
     if not os.path.exists(service_php_fpmwww):
-        tpl_php_fpmwww = getPluginDir() + '/conf/www.conf'
+        tpl_php_fpmwww = getPluginDir() + '/conf/'+pool+'.conf'
         content = mw.readFile(tpl_php_fpmwww)
         content = contentReplace(content, version)
         mw.writeFile(service_php_fpmwww, content)
@@ -260,7 +286,8 @@ def initReplace(version):
         mw.execShell('chmod +x ' + file_bin)
 
     phpPrependFile(version)
-    phpFpmWwwReplace(version)
+    phpFpmPoolReplace(version, 'www')
+    phpFpmPoolReplace(version, 'backup')
     phpFpmReplace(version)
 
     session_path = getServerDir() + '/tmp/session'
@@ -276,11 +303,11 @@ def initReplace(version):
     # systemd
     systemDir = mw.systemdCfgDir()
     systemService = systemDir + '/php' + version + '.service'
-    systemServiceTpl = getPluginDir() + '/init.d/php.service.tpl'
-    if version == '52':
-        systemServiceTpl = getPluginDir() + '/init.d/php.service.52.tpl'
 
     if os.path.exists(systemDir) and not os.path.exists(systemService):
+        systemServiceTpl = getPluginDir() + '/init.d/php.service.tpl'
+        if version == '52':
+            systemServiceTpl = getPluginDir() + '/init.d/php.service.52.tpl'
         service_path = mw.getServerDir()
         se_content = mw.readFile(systemServiceTpl)
         se_content = se_content.replace('{$VERSION}', version)
@@ -294,22 +321,31 @@ def initReplace(version):
 def phpOp(version, method):
     file = initReplace(version)
 
-    if not mw.isAppleSystem():
-        if method == 'stop' or method == 'restart':
-            mw.execShell(file + ' ' + 'stop')
-
-        data = mw.execShell('systemctl ' + method + ' php' + version)
+    current_os = mw.getOs()
+    if current_os == "darwin":
+        data = mw.execShell(file + ' ' + method)
         if data[1] == '':
             return 'ok'
         return data[1]
 
-    data = mw.execShell(file + ' ' + method)
+    if current_os.startswith("freebsd"):
+        data = mw.execShell('service php' + version + ' ' + method)
+        if data[1] == '':
+            return 'ok'
+        return data[1]
+
+    if method == 'stop' or method == 'restart':
+        mw.execShell(file + ' ' + 'stop')
+
+    data = mw.execShell('systemctl ' + method + ' php' + version)
     if data[1] == '':
         return 'ok'
     return data[1]
 
 
 def start(version):
+    cmd = 'export LD_LIBRARY_PATH=$LD_LIBRARY_PATH:/www/server/lib/icu/lib:/opt/homebrew/lib'
+    mw.execShell(cmd)
     return phpOp(version, 'start')
 
 
@@ -335,8 +371,14 @@ def reload(version):
 
 
 def initdStatus(version):
-    if mw.isAppleSystem():
+    current_os = mw.getOs()
+    if current_os == 'darwin':
         return "Apple Computer does not support"
+
+    if current_os.startswith('freebsd'):
+        initd_bin = getInitDFile(version)
+        if os.path.exists(initd_bin):
+            return 'ok'
 
     shell_cmd = 'systemctl status php' + version + ' | grep loaded | grep "enabled;"'
     data = mw.execShell(shell_cmd)
@@ -346,16 +388,31 @@ def initdStatus(version):
 
 
 def initdInstall(version):
-    if mw.isAppleSystem():
+    current_os = mw.getOs()
+    if current_os == 'darwin':
         return "Apple Computer does not support"
+
+    if current_os.startswith('freebsd'):
+        import shutil
+        source_bin = initReplace(version)
+        initd_bin = getInitDFile(version)
+        shutil.copyfile(source_bin, initd_bin)
+        mw.execShell('chmod +x ' + initd_bin)
+        return 'ok'
 
     mw.execShell('systemctl enable php' + version)
     return 'ok'
 
 
 def initdUinstall(version):
-    if mw.isAppleSystem():
+    current_os = mw.getOs()
+    if current_os == 'darwin':
         return "Apple Computer does not support"
+
+    if current_os.startswith('freebsd'):
+        initd_bin = getInitDFile(version)
+        os.remove(initd_bin)
+        return 'ok'
 
     mw.execShell('systemctl disable php' + version)
     return 'ok'
@@ -390,7 +447,7 @@ def getPhpConf(version):
     phpini = mw.readFile(getConf(version))
     result = []
     for g in gets:
-        rep = g['name'] + '\s*=\s*([0-9A-Za-z_& ~]+)(\s*;?|\r?\n)'
+        rep = g['name'] + r'\s*=\s*([0-9A-Za-z_& ~]+)(\s*;?|\r?\n)'
         tmp = re.search(rep, phpini)
         if not tmp:
             continue
@@ -409,7 +466,7 @@ def submitPhpConf(version):
     phpini = mw.readFile(filename)
     for g in gets:
         if g in args:
-            rep = g + '\s*=\s*(.+)\r?\n'
+            rep = g + r'\s*=\s*(.+)\r?\n'
             val = g + ' = ' + args[g] + '\n'
             phpini = re.sub(rep, val, phpini)
     mw.writeFile(filename, phpini)
@@ -427,14 +484,14 @@ def getLimitConf(version):
     # print fileini, filefpm
     data = {}
     try:
-        rep = "upload_max_filesize\s*=\s*([0-9]+)M"
+        rep = r"upload_max_filesize\s*=\s*([0-9]+)M"
         tmp = re.search(rep, phpini).groups()
         data['max'] = tmp[0]
     except:
         data['max'] = '50'
 
     try:
-        rep = "request_terminate_timeout\s*=\s*([0-9]+)\n"
+        rep = r"request_terminate_timeout\s*=\s*([0-9]+)\n"
         tmp = re.search(rep, phpfpm).groups()
         data['maxTime'] = tmp[0]
     except:
@@ -466,15 +523,15 @@ def setMaxTime(version):
 
     filefpm = getFpmConfFile(version)
     conf = mw.readFile(filefpm)
-    rep = "request_terminate_timeout\s*=\s*([0-9]+)\n"
+    rep = r"request_terminate_timeout\s*=\s*([0-9]+)\n"
     conf = re.sub(rep, "request_terminate_timeout = " + time + "\n", conf)
     mw.writeFile(filefpm, conf)
 
     fileini = getServerDir() + "/" + version + "/etc/php.ini"
     phpini = mw.readFile(fileini)
-    rep = "max_execution_time\s*=\s*([0-9]+)\r?\n"
+    rep = r"max_execution_time\s*=\s*([0-9]+)\r?\n"
     phpini = re.sub(rep, "max_execution_time = " + time + "\n", phpini)
-    rep = "max_input_time\s*=\s*([0-9]+)\r?\n"
+    rep = r"max_input_time\s*=\s*([0-9]+)\r?\n"
     phpini = re.sub(rep, "max_input_time = " + time + "\n", phpini)
     mw.writeFile(fileini, phpini)
     return mw.returnJson(True, '设置成功!')
@@ -492,9 +549,9 @@ def setMaxSize(version):
 
     path = getConf(version)
     conf = mw.readFile(path)
-    rep = u"\nupload_max_filesize\s*=\s*[0-9]+M"
+    rep = r"\nupload_max_filesize\s*=\s*[0-9]+M"
     conf = re.sub(rep, u'\nupload_max_filesize = ' + maxVal + 'M', conf)
-    rep = u"\npost_max_size\s*=\s*[0-9]+M"
+    rep = r"\npost_max_size\s*=\s*[0-9]+M"
     conf = re.sub(rep, u'\npost_max_size = ' + maxVal + 'M', conf)
     mw.writeFile(path, conf)
 
@@ -503,28 +560,32 @@ def setMaxSize(version):
     return mw.returnJson(True, '设置成功!')
 
 
-def getFpmConfig(version):
+def getFpmConfig(version, pool = 'www'):
+    args = getArgs()
+    pool = 'www'
+    if 'pool' in args:
+        pool = args['pool']
 
-    filefpm = getServerDir() + '/' + version + '/etc/php-fpm.d/www.conf'
+    filefpm = getServerDir() + '/' + version + '/etc/php-fpm.d/'+pool+'.conf'
     conf = mw.readFile(filefpm)
     data = {}
-    rep = "\s*pm.max_children\s*=\s*([0-9]+)\s*"
+    rep = r"\s*pm.max_children\s*=\s*([0-9]+)\s*"
     tmp = re.search(rep, conf).groups()
     data['max_children'] = tmp[0]
 
-    rep = "\s*pm.start_servers\s*=\s*([0-9]+)\s*"
+    rep = r"\s*pm.start_servers\s*=\s*([0-9]+)\s*"
     tmp = re.search(rep, conf).groups()
     data['start_servers'] = tmp[0]
 
-    rep = "\s*pm.min_spare_servers\s*=\s*([0-9]+)\s*"
+    rep = r"\s*pm.min_spare_servers\s*=\s*([0-9]+)\s*"
     tmp = re.search(rep, conf).groups()
     data['min_spare_servers'] = tmp[0]
 
-    rep = "\s*pm.max_spare_servers \s*=\s*([0-9]+)\s*"
+    rep = r"\s*pm.max_spare_servers \s*=\s*([0-9]+)\s*"
     tmp = re.search(rep, conf).groups()
     data['max_spare_servers'] = tmp[0]
 
-    rep = "\s*pm\s*=\s*(\w+)\s*"
+    rep = r"\s*pm\s*=\s*(\w+)\s*"
     tmp = re.search(rep, conf).groups()
     data['pm'] = tmp[0]
     return mw.getJson(data)
@@ -541,25 +602,27 @@ def setFpmConfig(version):
     min_spare_servers = args['min_spare_servers']
     max_spare_servers = args['max_spare_servers']
     pm = args['pm']
+    pool = args['pool']
 
-    file = getServerDir() + '/' + version + '/etc/php-fpm.d/www.conf'
+
+    file = getServerDir() + '/' + version + '/etc/php-fpm.d/'+pool+'.conf'
     conf = mw.readFile(file)
 
-    rep = "\s*pm.max_children\s*=\s*([0-9]+)\s*"
+    rep = r"\s*pm.max_children\s*=\s*([0-9]+)\s*"
     conf = re.sub(rep, "\npm.max_children = " + max_children, conf)
 
-    rep = "\s*pm.start_servers\s*=\s*([0-9]+)\s*"
+    rep = r"\s*pm.start_servers\s*=\s*([0-9]+)\s*"
     conf = re.sub(rep, "\npm.start_servers = " + start_servers, conf)
 
-    rep = "\s*pm.min_spare_servers\s*=\s*([0-9]+)\s*"
+    rep = r"\s*pm.min_spare_servers\s*=\s*([0-9]+)\s*"
     conf = re.sub(rep, "\npm.min_spare_servers = " +
                   min_spare_servers, conf)
 
-    rep = "\s*pm.max_spare_servers \s*=\s*([0-9]+)\s*"
+    rep = r"\s*pm.max_spare_servers \s*=\s*([0-9]+)\s*"
     conf = re.sub(rep, "\npm.max_spare_servers = " +
                   max_spare_servers + "\n", conf)
 
-    rep = "\s*pm\s*=\s*(\w+)\s*"
+    rep = r"\s*pm\s*=\s*(\w+)\s*"
     conf = re.sub(rep, "\npm = " + pm + "\n", conf)
 
     mw.writeFile(file, conf)
@@ -585,8 +648,10 @@ def setFpmConfig(version):
 #     return True
 
 
-def getFpmAddress(version):
+def getFpmAddress(version, pool='www'):
     fpm_address = '/tmp/php-cgi-{}.sock'.format(version)
+    if pool != 'www':
+        fpm_address = '/tmp/php-cgi-{}.{}.sock'.format(version,pool)
     php_fpm_file = getFpmConfFile(version)
     try:
         content = readFile(php_fpm_file)
@@ -617,19 +682,196 @@ def getFpmStatus(version):
     if stat == 'stop':
         return mw.returnJson(False, 'PHP[' + version + ']未启动!!!')
 
-    sock_file = getFpmAddress(version)
+    args = getArgs()
+    pool = 'www'
+    if 'pool' in args:
+        pool = args['pool']
+
+    sock_file = getFpmAddress(version, pool)
+    uri = '/phpfpm_status_' + version + '?json'
+    if pool != 'www':
+        uri = '/phpfpm_status_' + version + '_'+pool+'?json'
     try:
-        sock_data = mw.requestFcgiPHP(
-            sock_file, '/phpfpm_status_' + version + '?json')
+        sock_data = mw.requestFcgiPHP(sock_file, uri)
     except Exception as e:
         return mw.returnJson(False, str(e))
 
-    # print(data)
+    
     result = str(sock_data, encoding='utf-8')
     data = json.loads(result)
     fTime = time.localtime(int(data['start time']))
     data['start time'] = time.strftime('%Y-%m-%d %H:%M:%S', fTime)
     return mw.returnJson(True, "OK", data)
+
+
+def getSessionConf(version):
+    filename = getConf(version)
+    if not os.path.exists(filename):
+        return mw.returnJson(False, '指定PHP版本不存在!')
+
+    phpini = mw.readFile(filename)
+
+    rep = r'session.save_handler\s*=\s*([0-9A-Za-z_& ~]+)(\s*;?|\r?\n)'
+    save_handler = re.search(rep, phpini)
+    if save_handler:
+        save_handler = save_handler.group(1)
+    else:
+        save_handler = "files"
+
+    reppath = r'\nsession.save_path\s*=\s*"tcp\:\/\/([\d\.]+):(\d+).*\r?\n'
+    passrep = r'\nsession.save_path\s*=\s*"tcp://[\w\.\?\:]+=(.*)"\r?\n'
+    memcached = r'\nsession.save_path\s*=\s*"([\d\.]+):(\d+)"'
+    save_path = re.search(reppath, phpini)
+    if not save_path:
+        save_path = re.search(memcached, phpini)
+    passwd = re.search(passrep, phpini)
+    port = ""
+    if passwd:
+        passwd = passwd.group(1)
+    else:
+        passwd = ""
+    if save_path:
+        port = save_path.group(2)
+        save_path = save_path.group(1)
+
+    else:
+        save_path = ""
+
+    data = {"save_handler": save_handler, "save_path": save_path,
+            "passwd": passwd, "port": port}
+    return mw.returnJson(True, 'ok', data)
+
+
+def setSessionConf(version):
+
+    args = getArgs()
+
+    ip = args['ip']
+    port = args['port']
+    passwd = args['passwd']
+    save_handler = args['save_handler']
+
+    if save_handler != "files":
+        iprep = r"(2(5[0-5]{1}|[0-4]\d{1})|[0-1]?\d{1,2})\.(2(5[0-5]{1}|[0-4]\d{1})|[0-1]?\d{1,2})\.(2(5[0-5]{1}|[0-4]\d{1})|[0-1]?\d{1,2})\.(2(5[0-5]{1}|[0-4]\d{1})|[0-1]?\d{1,2})"
+        if not re.search(iprep, ip):
+            return mw.returnJson(False, '请输入正确的IP地址')
+
+        try:
+            port = int(port)
+            if port >= 65535 or port < 1:
+                return mw.returnJson(False, '请输入正确的端口号')
+        except:
+            return mw.returnJson(False, '请输入正确的端口号')
+        prep = r"[\~\`\/\=]"
+        if re.search(prep, passwd):
+            return mw.returnJson(False, '请不要输入以下特殊字符 " ~ ` / = "')
+
+    filename = getConf(version)
+    if not os.path.exists(filename):
+        return mw.returnJson(False, '指定PHP版本不存在!')
+    phpini = mw.readFile(filename)
+
+    session_tmp = getServerDir() + "/tmp/session"
+
+    rep = r'session.save_handler\s*=\s*(.+)\r?\n'
+    val = r'session.save_handler = ' + save_handler + '\n'
+    phpini = re.sub(rep, val, phpini)
+
+    if save_handler == "memcached":
+        if not re.search("memcached.so", phpini):
+            return mw.returnJson(False, '请先安装%s扩展' % save_handler)
+        rep = r'\nsession.save_path\s*=\s*(.+)\r?\n'
+        val = r'\nsession.save_path = "%s:%s" \n' % (ip, port)
+        if re.search(rep, phpini):
+            phpini = re.sub(rep, val, phpini)
+        else:
+            phpini = re.sub('\n;session.save_path = "' + session_tmp + '"',
+                            '\n;session.save_path = "' + session_tmp + '"' + val, phpini)
+
+    if save_handler == "memcache":
+        if not re.search("memcache.so", phpini):
+            return mw.returnJson(False, '请先安装%s扩展' % save_handler)
+        rep = r'\nsession.save_path\s*=\s*(.+)\r?\n'
+        val = r'\nsession.save_path = "%s:%s" \n' % (ip, port)
+        if re.search(rep, phpini):
+            phpini = re.sub(rep, val, phpini)
+        else:
+            phpini = re.sub('\n;session.save_path = "' + session_tmp + '"',
+                            '\n;session.save_path = "' + session_tmp + '"' + val, phpini)
+
+    if save_handler == "redis":
+        if not re.search("redis.so", phpini):
+            return mw.returnJson(False, '请先安装%s扩展' % save_handler)
+        if passwd:
+            passwd = "?auth=" + passwd
+        else:
+            passwd = ""
+        rep = r'\nsession.save_path\s*=\s*(.+)\r?\n'
+        val = r'\nsession.save_path = "tcp://%s:%s%s"\n' % (ip, port, passwd)
+        res = re.search(rep, phpini)
+        if res:
+            phpini = re.sub(rep, val, phpini)
+        else:
+            phpini = re.sub('\n;session.save_path = "' + session_tmp + '"',
+                            '\n;session.save_path = "' + session_tmp + '"' + val, phpini)
+
+    if save_handler == "files":
+        rep = r'\nsession.save_path\s*=\s*(.+)\r?\n'
+        val = r'\nsession.save_path = "' + session_tmp + '"\n'
+        if re.search(rep, phpini):
+            phpini = re.sub(rep, val, phpini)
+        else:
+            phpini = re.sub('\n;session.save_path = "' + session_tmp + '"',
+                            '\n;session.save_path = "' + session_tmp + '"' + val, phpini)
+
+    mw.writeFile(filename, phpini)
+    reload(version)
+    return mw.returnJson(True, '设置成功!')
+
+
+def getSessionCount_Origin(version):
+    session_tmp = getServerDir() + "/tmp/session"
+    d = [session_tmp]
+    count = 0
+    for i in d:
+        if not os.path.exists(i):
+            mw.execShell('mkdir -p %s' % i)
+        list = os.listdir(i)
+        for l in list:
+            if os.path.isdir(i + "/" + l):
+                l1 = os.listdir(i + "/" + l)
+                for ll in l1:
+                    if "sess_" in ll:
+                        count += 1
+                continue
+            if "sess_" in l:
+                count += 1
+
+    s = "find /tmp -mtime +1 |grep 'sess_' | wc -l"
+    old_file = int(mw.execShell(s)[0].split("\n")[0])
+
+    s = "find " + session_tmp + " -mtime +1 |grep 'sess_'|wc -l"
+    old_file += int(mw.execShell(s)[0].split("\n")[0])
+    return {"total": count, "oldfile": old_file}
+
+
+def getSessionCount(version):
+    data = getSessionCount_Origin(version)
+    return mw.returnJson(True, 'ok!', data)
+
+
+def cleanSessionOld(version):
+    s = "find /tmp -mtime +1 |grep 'sess_'|xargs rm -f"
+    mw.execShell(s)
+
+    session_tmp = getServerDir() + "/tmp/session"
+    s = "find " + session_tmp + " -mtime +1 |grep 'sess_' |xargs rm -f"
+    mw.execShell(s)
+    old_file_conf = getSessionCount_Origin(version)["oldfile"]
+    if old_file_conf == 0:
+        return mw.returnJson(True, '清理成功')
+    else:
+        return mw.returnJson(True, '清理失败')
 
 
 def getDisableFunc(version):
@@ -639,7 +881,7 @@ def getDisableFunc(version):
 
     phpini = mw.readFile(filename)
     data = {}
-    rep = "disable_functions\s*=\s{0,1}(.*)\n"
+    rep = r"disable_functions\s*=\s{0,1}(.*)\n"
     tmp = re.search(rep, phpini).groups()
     data['disable_functions'] = tmp[0]
     return mw.getJson(data)
@@ -654,7 +896,7 @@ def setDisableFunc(version):
     disable_functions = args['disable_functions']
 
     phpini = mw.readFile(filename)
-    rep = "disable_functions\s*=\s*.*\n"
+    rep = r"disable_functions\s*=\s*.*\n"
     phpini = re.sub(rep, 'disable_functions = ' +
                     disable_functions + "\n", phpini)
 
@@ -671,7 +913,7 @@ def getPhpinfo(version):
         return 'PHP[' + version + ']未启动,不可访问!!!'
 
     sock_file = getFpmAddress(version)
-    root_dir = mw.getRootDir() + '/phpinfo'
+    root_dir = mw.getFatherDir() + '/phpinfo'
 
     mw.execShell("rm -rf " + root_dir)
     mw.execShell("mkdir -p " + root_dir)
@@ -686,7 +928,7 @@ def get_php_info(args):
     return getPhpinfo(args['version'])
 
 
-def getLibConf(version):
+def libConfCommon(version):
     fname = getConf(version)
     if not os.path.exists(fname):
         return mw.returnJson(False, '指定PHP版本不存在!')
@@ -697,8 +939,7 @@ def getLibConf(version):
     phplib = json.loads(mw.readFile(libpath))
 
     libs = []
-    tasks = mw.M('tasks').where(
-        "status!=?", ('1',)).field('status,name').select()
+    tasks = mw.M('tasks').where("status!=?", ('1',)).field('status,name').select()
     for lib in phplib:
         lib['task'] = '1'
         for task in tasks:
@@ -715,6 +956,17 @@ def getLibConf(version):
         else:
             lib['status'] = True
         libs.append(lib)
+    return libs
+
+
+def get_lib_conf(data):
+    libs = libConfCommon(data['version'])
+    # print(libs)
+    return mw.returnData(True, 'OK!', libs)
+
+
+def getLibConf(version):
+    libs = libConfCommon(version)
     return mw.returnJson(True, 'OK!', libs)
 
 
@@ -725,13 +977,10 @@ def installLib(version):
         return data[1]
 
     name = args['name']
-    execstr = "cd " + getPluginDir() + "/versions && /bin/bash  common.sh " + \
-        version + ' install ' + name
-
-    rettime = time.strftime('%Y-%m-%d %H:%M:%S')
-    insert_info = (None, '安装[' + name + '-' + version + ']',
-                   'execshell', '0', rettime, execstr)
-    mw.M('tasks').add('id,name,type,status,addtime,execstr', insert_info)
+    cmd = "cd " + getPluginDir() + "/versions && /bin/bash  common.sh " + version + ' install ' + name
+    install_name = '安装[' + name + '-' + version + ']'
+    import thisdb
+    thisdb.addTask(name=install_name,cmd=cmd)
 
     mw.triggerTask()
     return mw.returnJson(True, '已将下载任务添加到队列!')
@@ -744,8 +993,7 @@ def uninstallLib(version):
         return data[1]
 
     name = args['name']
-    execstr = "cd " + getPluginDir() + "/versions && /bin/bash  common.sh " + \
-        version + ' uninstall ' + name
+    execstr = "cd " + getPluginDir() + "/versions && /bin/bash  common.sh " + version + ' uninstall ' + name
 
     data = mw.execShell(execstr)
     # data[0] == '' and
@@ -758,6 +1006,10 @@ def uninstallLib(version):
 def getConfAppStart():
     pstart = mw.getServerDir() + '/php/app_start.php'
     return pstart
+
+def opcacheBlacklistFile():
+    op_bl = mw.getServerDir() + '/php/opcache-blacklist.txt'
+    return op_bl
 
 
 def installPreInspection(version):
@@ -794,6 +1046,7 @@ def installPreInspection(version):
             return 'fedora[{}]不可安装'.format(sysId)
     return 'ok'
 
+
 if __name__ == "__main__":
 
     if len(sys.argv) < 3:
@@ -829,10 +1082,14 @@ if __name__ == "__main__":
         print(getConf(version))
     elif func == 'app_start':
         print(getConfAppStart())
+    elif func == 'opcache_blacklist_file':
+        print(opcacheBlacklistFile())
     elif func == 'get_php_conf':
         print(getPhpConf(version))
     elif func == 'get_fpm_conf_file':
         print(getFpmConfFile(version))
+    elif func == 'get_fpm_file':
+        print(getFpmFile(version))
     elif func == 'submit_php_conf':
         print(submitPhpConf(version))
     elif func == 'get_limit_conf':
@@ -847,6 +1104,14 @@ if __name__ == "__main__":
         print(setFpmConfig(version))
     elif func == 'get_fpm_status':
         print(getFpmStatus(version))
+    elif func == 'get_session_conf':
+        print(getSessionConf(version))
+    elif func == 'set_session_conf':
+        print(setSessionConf(version))
+    elif func == 'get_session_count':
+        print(getSessionCount(version))
+    elif func == 'clean_session_old':
+        print(cleanSessionOld(version))
     elif func == 'get_disable_func':
         print(getDisableFunc(version))
     elif func == 'set_disable_func':

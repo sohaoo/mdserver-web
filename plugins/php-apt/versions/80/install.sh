@@ -8,8 +8,6 @@ rootPath=$(dirname "$rootPath")
 serverPath=$(dirname "$rootPath")
 sourcePath=${serverPath}/source
 sysName=`uname`
-install_tmp=${rootPath}/tmp/mw_install.pl
-
 
 #获取信息和版本
 # bash /www/server/mdsever-web/scripts/getos.sh
@@ -37,7 +35,7 @@ Uninstall_php()
 #------------------------ uninstall start ------------------------------------#
 apt -y remove php${version} php${version}-*
 rm -rf $serverPath/php-apt/${PHP_VER}
-echo "卸载php-${version}..." > $install_tmp
+echo "卸载php-${version}..."
 #------------------------ uninstall start ------------------------------------#
 }
 

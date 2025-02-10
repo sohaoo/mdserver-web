@@ -7,7 +7,9 @@ rootPath=$(dirname "$curPath")
 rootPath=$(dirname "$rootPath")
 serverPath=$(dirname "$rootPath")
 
-install_tmp=${rootPath}/tmp/mw_install.pl
+if [ -f ${rootPath}/bin/activate ];then
+	source ${rootPath}/bin/activate
+fi
 
 
 GOGS_DOWNLOAD='https://dl.gogs.io'
@@ -29,9 +31,10 @@ getBit(){
 
 Install_gogs()
 {
+	
 	mkdir -p $serverPath/source/gogs
 
-	echo '正在安装脚本文件...' > $install_tmp
+	echo '正在安装脚本文件...'
 	version=$1
 	os=`getOs`
 
@@ -52,7 +55,7 @@ Install_gogs()
 	fi
 
 	if [ ! -f $serverPath/source/gogs/$file ];then
-		wget -O $serverPath/source/gogs/$file ${GOGS_DOWNLOAD}/${version}/${file}
+		wget  --no-check-certificate -O $serverPath/source/gogs/$file ${GOGS_DOWNLOAD}/${version}/${file}
 	fi
 
 	cd $serverPath/source/gogs && unzip -o $file -d gogs_${version}
@@ -73,7 +76,7 @@ Install_gogs()
 	# 	echo "gogs ALL=(ALL)    NOPASSWD: ALL" >> /etc/sudoers
 	# fi
 
-	echo 'install success' > $install_tmp
+	echo 'install success'
 }
 
 Uninstall_gogs()
@@ -91,7 +94,7 @@ Uninstall_gogs()
 	fi
 
 	rm -rf $serverPath/gogs
-	echo 'uninstall success' > $install_tmp
+	echo 'uninstall success'
 }
 
 

@@ -1,7 +1,6 @@
 # -*- coding: utf-8 -*-
 #!/bin/bash
-
-PATH=/bin:/sbin:/usr/bin:/usr/sbin:/usr/local/bin:/usr/local/sbin:~/bin
+PATH=/bin:/sbin:/usr/bin:/usr/sbin:/usr/local/bin:/usr/local/sbin:~/bin:/opt/homebrew/bin
 export PATH
 
 #https://dev.mysql.com/downloads/mysql/5.7.html
@@ -13,8 +12,6 @@ rootPath=$(dirname "$rootPath")
 serverPath=$(dirname "$rootPath")
 sysName=`uname`
 
-
-install_tmp=${rootPath}/tmp/mw_install.pl
 mysqlDir=${serverPath}/source/mysql
 
 _os=`uname`
@@ -57,20 +54,11 @@ fi
 VERSION_ID=`cat /etc/*-release | grep VERSION_ID | awk -F = '{print $2}' | awk -F "\"" '{print $2}'`
 
 
-VERSION=8.0.28
+VERSION=8.0.37
 Install_mysql()
 {
 	mkdir -p ${mysqlDir}
-	echo '正在安装脚本文件...' > $install_tmp
-
-
-	if id mysql &> /dev/null ;then 
-	    echo "mysql UID is `id -u www`"
-	    echo "mysql Shell is `grep "^www:" /etc/passwd |cut -d':' -f7 `"
-	else
-	    groupadd mysql
-		useradd -g mysql mysql
-	fi
+	echo '正在安装脚本文件...'
 
 	# ----- cpu start ------
 	if [ -z "${cpuCore}" ]; then
@@ -90,12 +78,14 @@ Install_mysql()
 	    cpuCore="1"
 	fi
 
-	if [ "$cpuCore" -gt "1" ];then
+	if [ "$cpuCore" -gt "2" ];then
 		cpuCore=`echo "$cpuCore" | awk '{printf("%.f",($1)*0.8)}'`
+	else
+		cpuCore="1"
 	fi
 	# ----- cpu end ------
 
-	cd $serverPath/mdserver-web/plugins/mysql/lib && /bin/bash rpcgen.sh
+	cd ${rootPath}/plugins/mysql/lib && /bin/bash rpcgen.sh
 
 	INSTALL_CMD=cmake
 	# check cmake version
@@ -107,11 +97,12 @@ Install_mysql()
 	fi
 
 	if [ ! -f ${mysqlDir}/mysql-boost-${VERSION}.tar.gz ];then
-		wget -O ${mysqlDir}/mysql-boost-${VERSION}.tar.gz --tries=3 https://cdn.mysql.com/Downloads/MySQL-8.0/mysql-boost-${VERSION}.tar.gz
+		#wget --no-check-certificate -O ${mysqlDir}/mysql-boost-${VERSION}.tar.gz --tries=3 https://dev.mysql.com/get/Downloads/MySQL-8.0/mysql-boost-${VERSION}.tar.gz
+         wget --no-check-certificate -O ${mysqlDir}/mysql-boost-${VERSION}.tar.gz --tries=3 https://cdn.mysql.com/archives/mysql-8.0/mysql-boost-${VERSION}.tar.gz
 	fi
 
 	#检测文件是否损坏.
-	md5_mysql_ok=362b8141ecaf425b803fe55292e2df98
+	md5_mysql_ok=e0cb61cbf6e1144c452368c4535ae931
 	if [ -f ${mysqlDir}/mysql-boost-${VERSION}.tar.gz ];then
 		md5_mysql=`md5sum ${mysqlDir}/mysql-boost-${VERSION}.tar.gz  | awk '{print $1}'`
 		if [ "${md5_mysql_ok}" == "${md5_mysql}" ]; then
@@ -119,7 +110,7 @@ Install_mysql()
 		else
 			# 重新下载
 			rm -rf ${mysqlDir}/mysql-${VERSION}
-			wget -O ${mysqlDir}/mysql-boost-${VERSION}.tar.gz --tries=3 https://cdn.mysql.com/Downloads/MySQL-8.0/mysql-boost-${VERSION}.tar.gz
+			wget --no-check-certificate -O ${mysqlDir}/mysql-boost-${VERSION}.tar.gz --tries=3 https://dev.mysql.com/get/Downloads/MySQL-8.0/mysql-boost-${VERSION}.tar.gz
 		fi
 	fi
 
@@ -132,7 +123,7 @@ Install_mysql()
 	OPENSSL_VERSION=`openssl version|awk '{print $2}'|awk -F '.' '{print $1}'`
 	if [ "${OPENSSL_VERSION}" -ge "3" ];then
 		#openssl version to high
-		cd $serverPath/mdserver-web/plugins/php/lib && /bin/bash openssl.sh
+		cd ${rootPath}/plugins/php/lib && /bin/bash openssl.sh
 		export PKG_CONFIG_PATH=$serverPath/lib/openssl/lib/pkgconfig
 		OPTIONS="-DWITH_SSL=${serverPath}/lib/openssl"
 	fi
@@ -157,13 +148,13 @@ Install_mysql()
 		apt install -y libssl-dev
 		apt install -y libgssglue-dev
 		apt install -y software-properties-common
-		add-apt-repository ppa:ubuntu-toolchain-r/test
+		add-apt-repository -y ppa:ubuntu-toolchain-r/test
 
 		LIBTIRPC_VER=`pkg-config libtirpc --modversion`
-		if [ ! -f ${mysqlDir}/libtirpc_1.2.5.orig.tar.bz2 ];then
-			wget -O ${mysqlDir}/libtirpc_1.2.5.orig.tar.bz2 https://launchpad.net/ubuntu/+archive/primary/+sourcefiles/libtirpc/1.2.5-1ubuntu0.1/libtirpc_1.2.5.orig.tar.bz2
-			cd ${mysqlDir} && tar -jxvf libtirpc_1.2.5.orig.tar.bz2
-			cd libtirpc-1.2.5 && ./configure
+		if [ ! -f ${mysqlDir}/libtirpc_1.3.3.orig.tar.bz2 ];then
+			wget --no-check-certificate -O ${mysqlDir}/libtirpc_1.3.3.orig.tar.bz2 https://downloads.sourceforge.net/libtirpc/libtirpc-1.3.3.tar.bz2
+			cd ${mysqlDir} && tar -jxvf libtirpc_1.3.3.orig.tar.bz2
+			cd libtirpc-1.3.3 && ./configure
 		fi
 
 		export PKG_CONFIG_PATH=/usr/lib/pkgconfig
@@ -208,12 +199,12 @@ Install_mysql()
 		make -j${cpuCore} && make install && make clean
 
 		if [ -d $serverPath/mysql ];then
+			rm -rf ${mysqlDir}/mysql-${VERSION}
 			echo '8.0' > $serverPath/mysql/version.pl
-			echo '安装完成' > $install_tmp
+			echo "${VERSION}安装完成"
 		else
 			# rm -rf ${mysqlDir}/mysql-${VERSION}
-			echo '安装失败' > $install_tmp
-			echo 'install fail'>&2
+			echo "${VERSION}安装失败"
 			exit 1
 		fi
 	fi
@@ -222,7 +213,7 @@ Install_mysql()
 Uninstall_mysql()
 {
 	rm -rf $serverPath/mysql
-	echo '卸载完成' > $install_tmp
+	echo '卸载完成'
 }
 
 action=$1

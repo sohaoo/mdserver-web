@@ -12,8 +12,17 @@ import json
 # reload(sys)
 # sys.setdefaultencoding('utf-8')
 
-sys.path.append(os.getcwd() + "/class/core")
-import mw
+# python3 plugins/postgresql/index.py start 14.4
+# python3 plugins/postgresql/index.py run_info 14.4
+# ps -ef | grep -v grep| grep run_info | awk '{print $2}' | xargs kill -9
+# vi /etc/sysconfig/network-scripts/ifcfg-eth0
+
+web_dir = os.getcwd() + "/web"
+if os.path.exists(web_dir):
+    sys.path.append(web_dir)
+    os.chdir(web_dir)
+
+import core.mw as mw
 
 
 if mw.isAppleSystem():
@@ -65,12 +74,10 @@ def getArgs():
 
 
 def getBackupDir():
-    bk_path = mw.getBackupDir() + "/pg"
+    bk_path = mw.getBackupDir() + "/database/postgresql"
     if not os.path.isdir(bk_path):
-        mw.execShell("mkdir -p {}/upload".format(bk_path))
-
-    bk_path_upload = bk_path + "/upload"
-    return bk_path_upload
+        mw.execShell("mkdir -p {}".format(bk_path))
+    return bk_path
 
 
 def checkArgs(data, ck=[]):
@@ -113,17 +120,22 @@ def readConfigTpl():
 def getDbPort():
     file = getConf()
     content = mw.readFile(file)
-    rep = 'port\s*=\s*(\d*)?'
+    rep = r'port\s*=\s*(\d*)?'
     tmp = re.search(rep, content)
     return tmp.groups()[0].strip()
 
 
 def getSocketFile():
-    file = getConf()
-    content = mw.readFile(file)
-    rep = 'socket\s*=\s*(.*)'
-    tmp = re.search(rep, content)
-    return tmp.groups()[0].strip()
+    # sock_name = '.s.PGSQL.' + getDbPort()
+    sock_name = ""
+    sock_tmp = '/tmp/' + sock_name
+    if os.path.exists(sock_tmp):
+        return sock_tmp
+
+    sock_app = getServerDir() + "/" + sock_name
+    if os.path.exists(sock_app):
+        return sock_app
+    return sock_app
 
 
 def getInitdTpl(version=''):
@@ -135,7 +147,7 @@ def getInitdTpl(version=''):
 
 def contentReplace(content):
     service_path = mw.getServerDir()
-    content = content.replace('{$ROOT_PATH}', mw.getRootDir())
+    content = content.replace('{$ROOT_PATH}', mw.getFatherDir())
     content = content.replace('{$SERVER_PATH}', service_path)
     content = content.replace('{$APP_PATH}', service_path + '/postgresql')
     return content
@@ -169,6 +181,7 @@ def pgDb():
 
     db.setPort(getDbPort())
     db.setPwd(pSqliteDb('config').where('id=?', (1,)).getField('pg_root'))
+    db.setSocket(getSocketFile())
     return db
 
 
@@ -244,6 +257,14 @@ def status(version=''):
     return 'start'
 
 
+def pgCmd(cmd):
+    return "su - postgres -c \"" + cmd + "\""
+
+
+def execShellPg(cmd):
+    return mw.execShell(pgCmd(cmd))
+
+
 def pGetDbUser():
     if mw.isAppleSystem():
         user = mw.execShell(
@@ -257,8 +278,8 @@ def initPgData():
     if not os.path.exists(serverdir + '/data'):
         cmd = serverdir + '/bin/initdb -D ' + serverdir + "/data"
         if not mw.isAppleSystem():
-            cmd = "su - postgres -c \"" + cmd + "\""
-        # print(cmd)
+            execShellPg(cmd)
+            return False
         mw.execShell(cmd)
         return False
     return True
@@ -277,8 +298,8 @@ def initPgPwd():
 
     cmd_pass = "echo \"alter user postgres with password '" + pwd + "'\" | "
     if not mw.isAppleSystem():
-        cmd_pass = cmd_pass + ' su - postgres -c "' + \
-            serverdir + '/bin/psql -d postgres"'
+        cmd = serverdir + '/bin/psql -d postgres'
+        cmd_pass = cmd_pass + ' ' + pgCmd(cmd)
     else:
         cmd_pass = cmd_pass + serverdir + '/bin/psql -d postgres'
 
@@ -383,7 +404,7 @@ def initdUinstall():
 def getMyDbPos():
     file = getConf()
     content = mw.readFile(file)
-    rep = 'datadir\s*=\s*(.*)'
+    rep = r'datadir\s*=\s*(.*)'
     tmp = re.search(rep, content)
     return tmp.groups()[0].strip()
 
@@ -391,7 +412,7 @@ def getMyDbPos():
 def getPgPort():
     file = getConf()
     content = mw.readFile(file)
-    rep = 'port\s*=\s*(.*)'
+    rep = r'port\s*=\s*(.*)'
     tmp = re.search(rep, content)
     return tmp.groups()[0].strip()
 
@@ -405,7 +426,7 @@ def setPgPort():
     port = args['port']
     file = getConf()
     content = mw.readFile(file)
-    rep = "port\s*=\s*([0-9]+)\s*\n"
+    rep = r"port\s*=\s*([0-9]+)\s*\n"
     content = re.sub(rep, 'port = ' + port + '\n', content)
     mw.writeFile(file, content)
     restart()
@@ -655,7 +676,7 @@ def setUserPwd(version=''):
 
 
 def getDbBackupListFunc(dbname=''):
-    bkDir = mw.getRootDir() + '/backup/database'
+    bkDir = getBackupDir()
     blist = os.listdir(bkDir)
     r = []
 
@@ -679,6 +700,8 @@ def setDbBackup():
     os.system(cmd)
     return mw.returnJson(True, 'ok')
 
+def rootPwd():
+    return pSqliteDb('config').where('id=?', (1,)).getField('pg_root')
 
 def importDbBackup():
     args = getArgs()
@@ -689,17 +712,16 @@ def importDbBackup():
     file = args['file']
     name = args['name']
 
-    file_path = mw.getRootDir() + '/backup/database/' + file
-    file_path_sql = mw.getRootDir() + '/backup/database/' + file.replace('.gz', '')
+    file_path = getBackupDir() + '/' + file
+    file_path_sql = getBackupDir() + '/' + file.replace('.gz', '')
 
     if not os.path.exists(file_path_sql):
-        cmd = 'cd ' + mw.getRootDir() + '/backup/database && gzip -d ' + file
+        cmd = 'cd ' + getBackupDir() + ' && gzip -d ' + file
         mw.execShell(cmd)
 
     pwd = pSqliteDb('config').where('id=?', (1,)).getField('pg_root')
 
-    mysql_cmd = mw.getRootDir() + '/server/mysql/bin/mysql -uroot -p' + pwd + \
-        ' ' + name + ' < ' + file_path_sql
+    mysql_cmd = mw.getFatherDir() + '/server/mysql/bin/mysql -uroot -p' + pwd + ' ' + name + ' < ' + file_path_sql
 
     # print(mysql_cmd)
     os.system(mysql_cmd)
@@ -712,8 +734,7 @@ def deleteDbBackup():
     if not data[0]:
         return data[1]
 
-    bkDir = mw.getRootDir() + '/backup/database'
-
+    bkDir = getBackupDir()
     os.remove(bkDir + '/' + args['filename'])
     return mw.returnJson(True, 'ok')
 
@@ -725,7 +746,7 @@ def getDbBackupList():
         return data[1]
 
     r = getDbBackupListFunc(args['name'])
-    bkDir = mw.getRootDir() + '/backup/database'
+    bkDir = getBackupDir()
     rr = []
     for x in range(0, len(r)):
         p = bkDir + '/' + r[x]
@@ -850,7 +871,7 @@ def addDb():
     if listen_ip not in ["127.0.0.1/32", "localhost", "127.0.0.1"]:
         sedConf("listen_addresses", "'*'")
 
-    reg = "^[\w\.-]+$"
+    reg = r"^[\w\.-]+$"
     if not re.match(reg, dbname):
         return mw.returnJson(False, '数据库名称不能带有特殊符号!')
 
@@ -1321,7 +1342,7 @@ def addMasterRepSlaveUser(version=''):
     if len(password) < 1:
         password = mw.md5(time.time())[0:8]
 
-    if not re.match("^[\w\.-]+$", username):
+    if not re.match(r"^[\w\.-]+$", username):
         return mw.returnJson(False, '用户名不能带有特殊符号!')
     checks = ['root', 'mysql', 'test', 'sys', 'panel_logs']
     if username in checks or len(username) < 1:
@@ -1573,6 +1594,8 @@ if __name__ == "__main__":
         print(getPgPort())
     elif func == 'set_pg_port':
         print(setPgPort())
+    elif func == 'root_pwd':
+        print(rootPwd())
     elif func == 'get_db_list':
         print(getDbList())
     elif func == 'add_db':

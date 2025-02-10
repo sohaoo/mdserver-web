@@ -6,8 +6,12 @@ import os
 import time
 import re
 
-sys.path.append(os.getcwd() + "/class/core")
-import mw
+web_dir = os.getcwd() + "/web"
+if os.path.exists(web_dir):
+    sys.path.append(web_dir)
+    os.chdir(web_dir)
+
+import core.mw as mw
 
 app_debug = False
 if mw.isAppleSystem():
@@ -85,7 +89,7 @@ def initDreplace():
     systemService = systemDir + '/supervisor.service'
     systemServiceTpl = getPluginDir() + '/init.d/supervisor.service'
 
-    service_path = os.path.dirname(os.getcwd())
+    service_path = mw.getServerDir()
 
     if not os.path.exists(confD):
         os.mkdir(confD)
@@ -103,7 +107,7 @@ def initDreplace():
         mw.writeFile(conf, conf_content)
 
     if os.path.exists(systemDir) and not os.path.exists(systemService):
-        activate_file = mw.getServerDir() + '/mdserver-web/bin/activate'
+        activate_file = mw.getPanelDir() + '/bin/activate'
         if os.path.exists(activate_file):
             supervisord_bin = mw.execShell(
                 'source ' + activate_file + '&& which supervisord')[0].strip()
@@ -129,7 +133,7 @@ def supOp(method):
         return data[1]
 
     if method in ('reload', 'restart'):
-        return ok
+        return 'ok'
 
     cmd = 'supervisord -c ' + getServerDir() + '/supervisor.conf'
     if method == 'stop':
@@ -220,7 +224,8 @@ def getSupList():
                 infos = fr.readlines()
             for line in infos:
                 if "command=" in line.strip():
-                    d["command"] = line.strip().split('=')[1]
+                    # d["command"] = line.strip().split('=')[1]
+                    d["command"] = "子配置查看"
                 if "user=" in line.strip():
                     d["user"] = line.strip().split('=')[1]
                 if "priority=" in line.strip():
@@ -234,6 +239,44 @@ def getSupList():
     data['data'] = array_list
     return mw.getJson(data)
 
+def confDList():
+    confd_dir = getServerDir() + '/conf.d'
+    clist = os.listdir(confd_dir)
+    array_list = []
+    for x in range(len(clist)):
+        t = {}
+        t['name'] = clist[x]
+        array_list.append(t)
+
+    data = {}
+    data['data'] = array_list
+    return mw.getJson(data)
+
+
+def confDlistTraceLog():
+    args = getArgs()
+    data = checkArgs(args, ['name'])
+    if not data[0]:
+        return data[1]
+
+    confd_dir = getServerDir() + '/conf.d/' + args['name']
+    content = mw.readFile(confd_dir)
+    rep = r'stdout_logfile\s*=\s*(.*)'
+    tmp = re.search(rep, content)
+    return tmp.groups()[0].strip()
+
+
+def confDlistErrorLog():
+    args = getArgs()
+    data = checkArgs(args, ['name'])
+    if not data[0]:
+        return data[1]
+
+    confd_dir = getServerDir() + '/conf.d/' + args['name']
+    content = mw.readFile(confd_dir)
+    rep = r'stderr_logfile\s*=\s*(.*)'
+    tmp = re.search(rep, content)
+    return tmp.groups()[0].strip()
 
 def getUserListData():
     user = getServerDir() + "/user.txt"
@@ -291,12 +334,13 @@ def addJob():
     w_body += "startretries=3" + "\n"
     w_body += "stdout_logfile=" + log_dir + program + ".out.log" + "\n"
     w_body += "stderr_logfile=" + log_dir + program + ".err.log" + "\n"
-    w_body += "stdout_logfile_maxbytes=2MB" + "\n"
-    w_body += "stderr_logfile_maxbytes=2MB" + "\n"
+    w_body += "stdout_logfile_maxbytes=1MB" + "\n"
+    w_body += "stderr_logfile_maxbytes=1MB" + "\n"
     w_body += "user=" + user + "\n"
     w_body += "priority=999" + "\n"
     w_body += "numprocs={0}".format(numprocs) + "\n"
     w_body += "process_name=%(program_name)s"
+    # _%(process_num)02d
 
     dstFile = getSubConfDir() + "/" + program + '.ini'
 
@@ -321,12 +365,34 @@ def startJob():
     if status == 'start':
         action = "停止"
         cmd = supCtl + " stop " + name
-
+    # print(cmd)
     data = mw.execShell(cmd)
+    # print(data)
 
-    if data[0] != '':
+    if data[1] != '':
         return mw.returnJson(False, action + '[' + name + ']失败!')
     return mw.returnJson(True, action + '[' + name + ']成功!')
+
+
+def restartJob():
+    args = getArgs()
+    data = checkArgs(args, ['name', 'status'])
+    if not data[0]:
+        return data[1]
+
+    supCtl = 'supervisorctl -c ' + getServerDir() + "/supervisor.conf"
+
+    name = args['name']
+    status = args['status']
+
+    cmd = supCtl + " stop " + name
+    data = mw.execShell(cmd)
+    cmd = supCtl + " start " + name
+    data = mw.execShell(cmd)
+
+    if data[1] != '':
+        return mw.returnJson(False,  '[' + name + ']重启失败!')
+    return mw.returnJson(True,  '[' + name + ']重启成功!')
 
 
 def delJob():
@@ -440,8 +506,9 @@ def configTpl():
     pathFile = os.listdir(path)
     tmp = []
     for one in pathFile:
-        file = path + '/' + one
-        tmp.append(file)
+        if one.endswith(".ini"):
+            file = path + '/' + one
+            tmp.append(file)
     return mw.getJson(tmp)
 
 
@@ -472,7 +539,7 @@ def readConfigLogTpl():
             stdout_logfile = line.strip().split('=')[1]
 
     if stdout_logfile != '':
-        data = mw.getNumLines(stdout_logfile, int(line_log))
+        data = mw.getLastLine(stdout_logfile, int(line_log))
         return mw.returnJson(True, 'OK', data)
     return mw.returnJson(False, 'OK', '')
 
@@ -494,7 +561,7 @@ def readConfigLogErrorTpl():
             stderr_logfile = line.strip().split('=')[1]
 
     if stderr_logfile != '':
-        data = mw.getNumLines(stderr_logfile, int(line_log))
+        data = mw.getLastLine(stderr_logfile, int(line_log))
         return mw.returnJson(True, 'OK', data)
     return mw.returnJson(False, 'OK', '')
 
@@ -563,10 +630,18 @@ if __name__ == "__main__":
         print(getUserList())
     elif func == 'get_sup_list':
         print(getSupList())
+    elif func == 'confd_list':
+        print(confDList())
+    elif func == 'confd_list_trace_log':
+        print(confDlistTraceLog())
+    elif func == 'confd_list_error_log':
+        print(confDlistErrorLog())
     elif func == 'add_job':
         print(addJob())
     elif func == 'start_job':
         print(startJob())
+    elif func == 'restart_job':
+        print(restartJob())
     elif func == 'del_job':
         print(delJob())
     elif func == 'update_job':

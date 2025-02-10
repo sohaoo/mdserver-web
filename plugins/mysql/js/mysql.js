@@ -1,18 +1,9 @@
-function str2Obj(str){
-    var data = {};
-    kv = str.split('&');
-    for(i in kv){
-        v = kv[i].split('=');
-        data[v[0]] = v[1];
-    }
-    return data;
-}
 
 function myPost(method,args,callback, title){
 
     var _args = null; 
     if (typeof(args) == 'string'){
-        _args = JSON.stringify(str2Obj(args));
+        _args = JSON.stringify(toArrayObject(args));
     } else {
         _args = JSON.stringify(args);
     }
@@ -40,7 +31,7 @@ function myPostN(method,args,callback, title){
 
     var _args = null; 
     if (typeof(args) == 'string'){
-        _args = JSON.stringify(str2Obj(args));
+        _args = JSON.stringify(toArrayObject(args));
     } else {
         _args = JSON.stringify(args);
     }
@@ -59,13 +50,89 @@ function myPostN(method,args,callback, title){
 function myAsyncPost(method,args){
     var _args = null; 
     if (typeof(args) == 'string'){
-        _args = JSON.stringify(str2Obj(args));
+        _args = JSON.stringify(toArrayObject(args));
     } else {
         _args = JSON.stringify(args);
     }
 
     var loadT = layer.msg('正在获取...', { icon: 16, time: 0, shade: 0.3 });
     return syncPost('/plugins/run', {name:'mysql', func:method, args:_args}); 
+}
+
+
+function myPostCallbak(method, version, args,callback){
+    var loadT = layer.msg('正在获取...', { icon: 16, time: 0, shade: 0.3 });
+
+    var req_data = {};
+    req_data['name'] = 'mysql';
+    req_data['func'] = method;
+    req_data['script']='index_mysql';
+    args['version'] = version;
+
+ 
+    if (typeof(args) == 'string' && args == ''){
+        req_data['args'] = JSON.stringify(toArrayObject(args));
+    } else {
+        req_data['args'] = JSON.stringify(args);
+    }
+
+    $.post('/plugins/callback', req_data, function(data) {
+        layer.close(loadT);
+        if (!data.status){
+            layer.msg(data.msg,{icon:0,time:2000,shade: [0.3, '#000']});
+            return;
+        }
+
+        if(typeof(callback) == 'function'){
+            callback(data);
+        }
+    },'json'); 
+}
+
+function myPostCallbakN(method, version, args,callback){
+
+    var req_data = {};
+    req_data['name'] = 'mysql';
+    req_data['func'] = method;
+    req_data['script']='index_mysql';
+    args['version'] = version;
+
+ 
+    if (typeof(args) == 'string' && args == ''){
+        req_data['args'] = JSON.stringify(toArrayObject(args));
+    } else {
+        req_data['args'] = JSON.stringify(args);
+    }
+
+    $.post('/plugins/callback', req_data, function(data) {
+        if (!data.status){
+            layer.msg(data.msg,{icon:0,time:2000,shade: [0.3, '#000']});
+            return;
+        }
+
+        if(typeof(callback) == 'function'){
+            callback(data);
+        }
+    },'json'); 
+}
+
+function vaildPhpmyadmin(url,username,password){
+    // console.log("Authorization: Basic " + btoa(username + ":" + password));
+    $.ajax({
+        type: "GET",
+        url: url,
+        dataType: 'json',
+        async: false,
+        username:username,
+        password:password,
+        headers: {
+            "Authorization": "Basic " + btoa(username + ":" + password)
+        },
+        data: 'vaild',
+        success: function (){
+            alert('Thanks for your comment!');
+        }
+    });
 }
 
 function runInfo(){
@@ -77,6 +144,7 @@ function runInfo(){
             return;
         }
 
+        // Com_select , Qcache_inserts
         var cache_size = ((parseInt(rdata.Qcache_hits) / (parseInt(rdata.Qcache_hits) + parseInt(rdata.Qcache_inserts))) * 100).toFixed(2) + '%';
         if (cache_size == 'NaN%') cache_size = 'OFF';
         var Con = '<div class="divtable"><table class="table table-hover table-bordered" style="margin-bottom:10px;background-color:#fafafa">\
@@ -93,7 +161,7 @@ function runInfo(){
                         <tr><th>活动/峰值连接数</th><td>' + rdata.Threads_running + '/' + rdata.Max_used_connections + '</td><td colspan="2">若值过大,增加max_connections</td></tr>\
                         <tr><th>线程缓存命中率</th><td>' + ((1 - rdata.Threads_created / rdata.Connections) * 100).toFixed(2) + '%</td><td colspan="2">若过低,增加thread_cache_size</td></tr>\
                         <tr><th>索引命中率</th><td>' + ((1 - rdata.Key_reads / rdata.Key_read_requests) * 100).toFixed(2) + '%</td><td colspan="2">若过低,增加key_buffer_size</td></tr>\
-                        <tr><th>Innodb索引命中率</th><td>' + ((1 - rdata.Innodb_buffer_pool_reads / rdata.Innodb_buffer_pool_read_requests) * 100).toFixed(2) + '%</td><td colspan="2">若过低,增加innodb_buffer_pool_size</td></tr>\
+                        <tr><th>Innodb索引命中率</th><td>' + (rdata.Innodb_buffer_pool_read_requests / (rdata.Innodb_buffer_pool_read_requests+rdata.Innodb_buffer_pool_reads)).toFixed(2) + '%</td><td colspan="2">若过低,增加innodb_buffer_pool_size</td></tr>\
                         <tr><th>查询缓存命中率</th><td>' + cache_size + '</td><td colspan="2">' + lan.soft.mysql_status_ps5 + '</td></tr>\
                         <tr><th>创建临时表到磁盘</th><td>' + ((rdata.Created_tmp_disk_tables / rdata.Created_tmp_tables) * 100).toFixed(2) + '%</td><td colspan="2">若过大,尝试增加tmp_table_size</td></tr>\
                         <tr><th>已打开的表</th><td>' + rdata.Open_tables + '</td><td colspan="2">若过大,增加table_cache_size</td></tr>\
@@ -132,7 +200,7 @@ function myPort(){
     myPost('my_port','',function(data){
         var con = '<div class="line ">\
             <div class="info-r  ml0">\
-            <input name="port" class="bt-input-text mr5 port" type="text" style="width:100px" value="'+data.data+'">\
+            <input name="port" class="bt-input-text mr5 port" type="number" style="width:100px" value="'+data.data+'">\
             <button id="btn_change_port" name="btn_change_port" class="btn btn-success btn-sm mr5 ml5 btn_change_port">修改</button>\
             </div></div>';
         $(".soft-man-con").html(con);
@@ -151,39 +219,17 @@ function myPort(){
     });
 }
 
-
-//数据库存储信置
-function changeMySQLDataPath(act) {
-    if (act != undefined) {
-        layer.confirm(lan.soft.mysql_to_msg, { closeBtn: 2, icon: 3 }, function() {
-            var datadir = $("#datadir").val();
-            var data = 'datadir=' + datadir;
-            var loadT = layer.msg(lan.soft.mysql_to_msg1, { icon: 16, time: 0, shade: [0.3, '#000'] });
-            $.post('/database?action=SetDataDir', data, function(rdata) {
-                layer.close(loadT)
-                layer.msg(rdata.msg, { icon: rdata.status ? 1 : 5 });
-            });
-        });
-        return;
-    }
-
-    $.post('/database?action=GetMySQLInfo', '', function(rdata) {
-        var LimitCon = '<p class="conf_p">\
-                            <input id="datadir" class="phpUploadLimit bt-input-text mr5" style="width:350px;" type="text" value="' + rdata.datadir + '" name="datadir">\
-                            <span onclick="ChangePath(\'datadir\')" class="glyphicon glyphicon-folder-open cursor mr20" style="width:auto"></span><button class="btn btn-success btn-sm" onclick="changeMySQLDataPath(1)">' + lan.soft.mysql_to + '</button>\
-                        </p>';
-        $(".soft-man-con").html(LimitCon);
-    });
-}
-
-
-
-
 //数据库配置状态
 function myPerfOpt() {
     //获取MySQL配置
     myPost('db_status','',function(data){
         var rdata = $.parseJSON(data.data);
+        if ( typeof(rdata.status) != 'undefined' && !rdata.status){
+            layer.msg(rdata.msg, {icon:2});
+            return; 
+        }
+
+
         // console.log(rdata);
         var key_buffer_size = toSizeM(rdata.mem.key_buffer_size);
         var query_cache_size = toSizeM(rdata.mem.query_cache_size);
@@ -213,6 +259,8 @@ function myPerfOpt() {
                             <option value="3">4-8GB</option>\
                             <option value="4">8-16GB</option>\
                             <option value="5">16-32GB</option>\
+                            <option value="6">32-64GB</option>\
+                            <option value="7">64-128GB</option>\
                         </select>\
                         <span>' + lan.soft.mysql_set_maxmem + ': </span><input style="width:70px;background-color:#eee;" class="bt-input-text mr5" name="memSize" type="text" value="' + memSize.toFixed(2) + '" readonly>MB\
                         </div>\
@@ -393,6 +441,36 @@ function mySQLMemOpt(opt) {
             $("input[name='table_open_cache']").val(2048);
             $("input[name='max_connections']").val(500);
             break;
+        case '6':
+            $("input[name='key_buffer_size']").val(2048);
+            if (query_size) $("input[name='query_cache_size']").val(384);
+            $("input[name='tmp_table_size']").val(4096);
+            $("input[name='innodb_buffer_pool_size']").val(8192);
+            $("input[name='sort_buffer_size']").val(8192);
+            $("input[name='read_buffer_size']").val(8192);
+            $("input[name='read_rnd_buffer_size']").val(4096);
+            $("input[name='join_buffer_size']").val(16384);
+            $("input[name='thread_stack']").val(1024);
+            $("input[name='binlog_cache_size']").val(512);
+            $("input[name='thread_cache_size']").val(512);
+            $("input[name='table_open_cache']").val(4096);
+            $("input[name='max_connections']").val(1000);
+            break;
+        case '7':
+            $("input[name='key_buffer_size']").val(4096);
+            if (query_size) $("input[name='query_cache_size']").val(384);
+            $("input[name='tmp_table_size']").val(8192);
+            $("input[name='innodb_buffer_pool_size']").val(16384);
+            $("input[name='sort_buffer_size']").val(16384);
+            $("input[name='read_buffer_size']").val(16384);
+            $("input[name='read_rnd_buffer_size']").val(8192);
+            $("input[name='join_buffer_size']").val(16384);
+            $("input[name='thread_stack']").val(2048);
+            $("input[name='binlog_cache_size']").val(1024);
+            $("input[name='thread_cache_size']").val(1024);
+            $("input[name='table_open_cache']").val(8192);
+            $("input[name='max_connections']").val(2000);
+            break;
     }
 }
 
@@ -450,7 +528,6 @@ function setRootPwd(type, pwd){
             var rdata = $.parseJSON(data.data);
             showMsg(rdata.msg,function(){
                 dbList();
-                $('.layui-layer-close1').click();
             },{icon: rdata.status ? 1 : 2});   
         });
         return;
@@ -462,7 +539,7 @@ function setRootPwd(type, pwd){
         title: '修改数据库密码',
         closeBtn: 1,
         shift: 5,
-        btn:["提交","关闭"],
+        btn:["提交", "关闭", "复制ROOT密码", "强制修改"],
         shadeClose: true,
         content: "<form class='bt-form pd20' id='mod_pwd'>\
                     <div class='line'>\
@@ -472,8 +549,36 @@ function setRootPwd(type, pwd){
                         </div>\
                     </div>\
                   </form>",
-        yes:function(){
-            setRootPwd(1);
+        yes:function(layerIndex){
+            var password = $("#MyPassword").val();
+            myPost('set_root_pwd', {password:password}, function(data){
+                var rdata = $.parseJSON(data.data);
+                showMsg(rdata.msg,function(){
+                    layer.close(layerIndex);
+                    dbList();
+                },{icon: rdata.status ? 1 : 2});   
+            });
+        },
+        btn3:function(){
+            var password = $("#MyPassword").val();
+            copyText(password);
+            return false;
+        },
+        btn4:function(layerIndex){
+            layer.confirm('强制修改,是为了在重建时使用,确定强制?', {
+                btn: ['确定', '取消']
+            }, function(index, layero){
+                layer.close(index);
+                var password = $("#MyPassword").val();
+                myPost('set_root_pwd', {password:password,force:'1'}, function(data){
+                    var rdata = $.parseJSON(data.data);
+                    showMsg(rdata.msg,function(){
+                        layer.close(layerIndex);
+                        dbList();
+                    },{icon: rdata.status ? 1 : 2});   
+                });
+            });
+            return false;
         }
     });
 }
@@ -490,19 +595,6 @@ function showHidePass(obj){
         $(obj).removeClass(b).addClass(a);
         $(obj).prev().text('***');
     }
-}
-
-function copyPass(password){
-    var clipboard = new ClipboardJS('#bt_copys');
-    clipboard.on('success', function (e) {
-        layer.msg('复制成功',{icon:1,time:2000});
-    });
-
-    clipboard.on('error', function (e) {
-        layer.msg('复制失败，浏览器不兼容!',{icon:2,time:2000});
-    });
-    $("#bt_copys").attr('data-clipboard-text',password);
-    $("#bt_copys").click();
 }
 
 function checkSelect(){
@@ -586,7 +678,7 @@ function setDbAccess(username){
             yes:function(index){
                 var data = $("#set_db_access").serialize();
                 data = decodeURIComponent(data);
-                var dataObj = str2Obj(data);
+                var dataObj = toArrayObject(data);
                 if(!dataObj['access']){
                     dataObj['access'] = dataObj['dataAccess'];
                     if ( dataObj['dataAccess'] == 'ip'){
@@ -611,9 +703,17 @@ function setDbAccess(username){
     });
 }
 
-function setDbPass(id, username, password){
+function fixDbAccess(username){
+    myPost('fix_db_access', '', function(rdata){
+        var rdata = $.parseJSON(rdata.data);
+        showMsg(rdata.msg,function(){
+            dbList();
+        },{icon: rdata.status ? 1 : 2}); 
+    });
+}
 
-    var index = layer.open({
+function setDbPass(id, username, password){
+    layer.open({
         type: 1,
         area: '500px',
         title: '修改数据库密码',
@@ -633,7 +733,7 @@ function setDbPass(id, username, password){
                         <span title='随机密码' class='glyphicon glyphicon-repeat cursor' onclick='repeatPwd(16)'></span></div>\
                     </div>\
                     <input type='hidden' name='id' value='"+id+"'>\
-                  </form>",
+                </form>",
         yes:function(index){
             // var data = $("#mod_pwd").serialize();
             var data = {};
@@ -652,39 +752,21 @@ function setDbPass(id, username, password){
 }
 
 function addDatabase(type){
-    if (type==1){
-        var data = $("#add_db").serialize();
-        data = decodeURIComponent(data);
-        var dataObj = str2Obj(data);
-        if(!dataObj['address']){
-            dataObj['address'] = dataObj['dataAccess'];
-        }
-        myPost('add_db', dataObj, function(data){
-            var rdata = $.parseJSON(data.data);
-            showMsg(rdata.msg,function(){
-                if (rdata.status){
-                    dbList();
-                }
-                $('.layui-layer-close1').click();
-            },{icon: rdata.status ? 1 : 2},600);
-        });
-        return;
-    }
-    var index = layer.open({
+    layer.open({
         type: 1,
-        skin: 'demo-class',
         area: '500px',
         title: '添加数据库',
         closeBtn: 1,
         shift: 5,
         shadeClose: true,
-        content: "<form class='bt-form pd20 pb70' id='add_db'>\
+        btn:["提交","关闭"],
+        content: "<form class='bt-form pd20' id='add_db'>\
                     <div class='line'>\
                         <span class='tname'>数据库名</span>\
                         <div class='info-r'><input name='name' class='bt-input-text mr5' placeholder='新的数据库名称' type='text' style='width:65%' value=''>\
                         <select class='bt-input-text mr5 codeing_a5nGsm' name='codeing' style='width:27%'>\
-                            <option value='utf8'>utf-8</option>\
                             <option value='utf8mb4'>utf8mb4</option>\
+                            <option value='utf8'>utf-8</option>\
                             <option value='gbk'>gbk</option>\
                             <option value='big5'>big5</option>\
                         </select>\
@@ -706,40 +788,50 @@ function addDatabase(type){
                         </div>\
                     </div>\
                     <input type='hidden' name='ps' value='' />\
-                    <div class='bt-form-submit-btn'>\
-                        <button id='my_mod_close' type='button' class='btn btn-danger btn-sm btn-title'>关闭</button>\
-                        <button type='button' class='btn btn-success btn-sm btn-title' onclick=\"addDatabase(1)\" >提交</button>\
-                    </div>\
                   </form>",
-    });
+        success:function(){
+            $("input[name='name']").keyup(function(){
+                var v = $(this).val();
+                $("input[name='db_user']").val(v);
+                $("input[name='ps']").val(v);
+            });
 
-    $("input[name='name']").keyup(function(){
-        var v = $(this).val();
-        $("input[name='db_user']").val(v);
-        $("input[name='ps']").val(v);
-    });
-
-    $('#my_mod_close').click(function(){
-        $('.layui-layer-close1').click();
-    });
-    $('select[name="dataAccess"]').change(function(){
-        var v = $(this).val();
-        if (v == 'ip'){
-            $(this).after("<input id='dataAccess_subid' class='bt-input-text mr5' type='text' name='address' placeholder='多个IP使用逗号(,)分隔' style='width: 230px; display: inline-block;'>");
-        } else {
-            $('#dataAccess_subid').remove();
+            $('select[name="dataAccess"]').change(function(){
+                var v = $(this).val();
+                if (v == 'ip'){
+                    $(this).after("<input id='dataAccess_subid' class='bt-input-text mr5' type='text' name='address' placeholder='多个IP使用逗号(,)分隔' style='width: 230px; display: inline-block;'>");
+                } else {
+                    $('#dataAccess_subid').remove();
+                }
+            });
+        },
+        yes:function(index) {
+            var data = $("#add_db").serialize();
+            data = decodeURIComponent(data);
+            var dataObj = toArrayObject(data);
+            if(!dataObj['address']){
+                dataObj['address'] = dataObj['dataAccess'];
+            }
+            myPost('add_db', dataObj, function(data){
+                var rdata = $.parseJSON(data.data);
+                showMsg(rdata.msg,function(){
+                    if (rdata.status){
+                        layer.close(index);
+                        dbList();
+                    }
+                },{icon: rdata.status ? 1 : 2}, 2000);
+            });
         }
     });
 }
 
 function delDb(id, name){
     safeMessage('删除['+name+']','您真的要删除['+name+']吗？',function(){
-        var data='id='+id+'&name='+name
+        var data='id='+id+'&name='+name;
         myPost('del_db', data, function(data){
             var rdata = $.parseJSON(data.data);
             showMsg(rdata.msg,function(){
                 dbList();
-                $('.layui-layer-close1').click();
             },{icon: rdata.status ? 1 : 2}, 600);
         });
     });
@@ -797,73 +889,63 @@ function setDbPs(id, name, obj) {
 }
 
 function openPhpmyadmin(name,username,password){
+    $.post('/plugins/run', {'name':'phpmyadmin','func':'plugins_db_support'}, function(data){
+        var rdata = $.parseJSON(data.data);
 
-    data = syncPost('/plugins/check',{'name':'phpmyadmin'});
+        if (rdata.data['installed'] != 'ok'){
+            layer.msg('phpMyAdmin未安装!',{icon:2,shade: [0.3, '#000']});
+            return;
+        }
 
+        if (rdata.data['status'] != 'start'){
+            layer.msg('phpMyAdmin未启动',{icon:2,shade: [0.3, '#000']});
+            return;
+        }
 
-    if (!data.status){
-        layer.msg(data.msg,{icon:2,shade: [0.3, '#000']});
-        return;
-    }
+        if (rdata.data['cfg']['choose'] != 'mysql'){
+            layer.msg('当前为['+rdata.data['cfg']['choose'] + ']模式,若要使用请修改phpMyAdmin访问切换.',{icon:2,shade: [0.3, '#000']});
+            return;
+        }
+        var home_page = rdata.data['home_page'];
+        $("#toPHPMyAdmin").attr('action',home_page);
+        if($("#toPHPMyAdmin").attr('action').indexOf('phpmyadmin') == -1){
+            layer.msg('请先安装phpMyAdmin',{icon:2,shade: [0.3, '#000']});
+            setTimeout(function(){ window.location.href = '/soft'; },3000);
+            return;
+        }
+        //检查版本
+        bigVer = rdata.data['version'];
+        if (bigVer>=4.5){
 
-    data = syncPost('/plugins/run',{'name':'phpmyadmin','func':'status'});
-    if (data.data != 'start'){
-        layer.msg('phpMyAdmin未启动',{icon:2,shade: [0.3, '#000']});
-        return;
-    }
+            setTimeout(function(){
+                $("#toPHPMyAdmin").submit();
+            },2000);
+            layer.msg('phpMyAdmin['+data.data+']需要手动登录😭',{icon:16,shade: [0.3, '#000'],time:4000});
+            
+        } else{
+            var murl = $("#toPHPMyAdmin").attr('action');
+            $("#pma_username").val(username);
+            $("#pma_password").val(password);
+            $("#db").val(name);
 
-    data = syncPost('/plugins/run',{'name':'phpmyadmin','func':'get_cfg'});
-    var rdata = $.parseJSON(data.data);
-    if (rdata.choose == 'mariadb'){
-        layer.msg('当前为[mariadb]模式,若要使用请切换模式.',{icon:2,shade: [0.3, '#000']});
-        return;
-    }
-    
-    // console.log(data);
-    data = syncPost('/plugins/run',{'name':'phpmyadmin','func':'get_home_page'});
-    var rdata = $.parseJSON(data.data);
-    if (!rdata.status){
-        layer.msg(rdata.msg,{icon:2,shade: [0.3, '#000']});
-        return;
-    }
-    $("#toPHPMyAdmin").attr('action',rdata.data);
+            layer.msg('正在打开phpMyAdmin',{icon:16,shade: [0.3, '#000'],time:2000});
 
-    if($("#toPHPMyAdmin").attr('action').indexOf('phpmyadmin') == -1){
-        layer.msg('请先安装phpMyAdmin',{icon:2,shade: [0.3, '#000']});
-        setTimeout(function(){ window.location.href = '/soft'; },3000);
-        return;
-    }
+            setTimeout(function(){
+                $("#toPHPMyAdmin").submit();
+            },2000);
+        }
 
-    //检查版本
-    data = syncPost('/plugins/run',{'name':'phpmyadmin','func':'version'});
-    bigVer = data.data.split('.')[0]
-    if (bigVer>=4.5){
-
-        setTimeout(function(){
-            $("#toPHPMyAdmin").submit();
-        },3000);
-        layer.msg('phpMyAdmin['+data.data+']需要手动登录😭',{icon:16,shade: [0.3, '#000'],time:4000});
-        
-    } else{
-        var murl = $("#toPHPMyAdmin").attr('action');
-        $("#pma_username").val(username);
-        $("#pma_password").val(password);
-        $("#db").val(name);
-
-        layer.msg('正在打开phpMyAdmin',{icon:16,shade: [0.3, '#000'],time:2000});
-
-        setTimeout(function(){
-            $("#toPHPMyAdmin").submit();
-        },3000);
-    }    
+    },'json');
 }
 
-function delBackup(filename,name){
-    myPost('delete_db_backup',{filename:filename},function(){
+function delBackup(filename, name, path){
+    if(typeof(path) == "undefined"){
+        path = "";
+    }
+    myPost('delete_db_backup',{filename:filename,path:path},function(){
         layer.msg('执行成功!');
         setTimeout(function(){
-            $('.layui-layer-close2').click();
-            setBackup(name);
+            setBackupReq(name);
         },2000);
     });
 }
@@ -879,9 +961,233 @@ function importBackup(file,name){
     });
 }
 
-function setBackup(db_name,obj){
-     myPost('get_db_backup_list', {name:db_name}, function(data){
+function importBackupProgress(file,name){
+    myPost('import_db_backup_progress',{file:file,name:name}, function(data){
+        var rdata = $.parseJSON(data.data);
+        layer.open({
+            title: "手动导入命令CMD【显示进度】",
+            area: ['600px', '180px'],
+            type:1,
+            closeBtn: 1,
+            shadeClose: false,
+            btn:["复制","取消"],
+            content: '<div class="pd15">\
+                        <div class="divtable">\
+                            <pre class="layui-code">'+rdata.data+'</pre>\
+                        </div>\
+                    </div>',
+            success:function(){
+                copyText(rdata.data);
+            },
+            yes:function(){
+                copyText(rdata.data);
+            }
+        });
+    });
+}
 
+
+function importDbExternal(file,name){
+    myPost('import_db_external',{file:file,name:name}, function(data){
+        layer.msg('执行成功!');
+    });
+}
+
+function importDbExternalProgress(file,name){
+    myPost('import_db_external_progress',{file:file,name:name}, function(data){
+        var rdata = $.parseJSON(data.data);
+        layer.open({
+            title: "手动导入命令CMD【显示进度】",
+            area: ['600px', '180px'],
+            type:1,
+            closeBtn: 1,
+            shadeClose: false,
+            btn:["复制","取消"],
+            content: '<div class="pd15">\
+                        <div class="divtable">\
+                            <pre class="layui-code">'+rdata.data+'</pre>\
+                        </div>\
+                    </div>',
+            success:function(){
+                copyText(rdata.data);
+            },
+            yes:function(){
+                copyText(rdata.data);
+            }
+        });
+    });
+}
+
+function setLocalImport(db_name){
+
+    //上传文件
+    function uploadDbFiles(upload_dir){
+        var up_db = layer.open({
+            type:1,
+            closeBtn: 1,
+            title:"上传导入文件["+upload_dir+']',
+            area: ['500px','300px'],
+            shadeClose:false,
+            content:'<div class="fileUploadDiv">\
+                    <input type="hidden" id="input-val" value="'+upload_dir+'" />\
+                    <input type="file" id="file_input"  multiple="true" autocomplete="off" />\
+                    <button type="button"  id="opt" autocomplete="off">添加文件</button>\
+                    <button type="button" id="up" autocomplete="off" >开始上传</button>\
+                    <span id="totalProgress" style="position: absolute;top: 7px;right: 147px;"></span>\
+                    <span style="float:right;margin-top: 9px;">\
+                    <font>文件编码:</font>\
+                    <select id="fileCodeing" >\
+                        <option value="byte">二进制</option>\
+                        <option value="utf-8">UTF-8</option>\
+                        <option value="gb18030">GB2312</option>\
+                    </select>\
+                    </span>\
+                    <button type="button" id="filesClose" autocomplete="off">关闭</button>\
+                    <ul id="up_box"></ul>\
+                </div>',
+            success:function(){
+                $('#filesClose').click(function(){
+                    layer.close(up_db);
+                });
+            }
+
+        });
+        uploadStart(function(){
+            getList();
+            layer.close(up_db);
+        });
+    }
+
+    function getList(){
+        myPost('get_db_backup_import_list',{}, function(data){
+            var rdata = $.parseJSON(data.data);
+
+            var file_list = rdata.data.list;
+            var upload_dir = rdata.data.upload_dir;
+
+            var tbody = '';
+            for (var i = 0; i < file_list.length; i++) {
+                tbody += '<tr>\
+                        <td><span> ' + file_list[i]['name'] + '</span></td>\
+                        <td><span> ' + file_list[i]['size'] + '</span></td>\
+                        <td><span> ' + file_list[i]['time'] + '</span></td>\
+                        <td style="text-align: right;">\
+                            <a class="btlink" onclick="importDbExternal(\'' + file_list[i]['name'] + '\',\'' +db_name+ '\')">导入</a> | \
+                            <a class="btlink" onclick="importDbExternalProgress(\'' + file_list[i]['name'] + '\',\'' +db_name+ '\')">导入进度</a> | \
+                            <a class="btlink del" index="'+i+'">删除</a>\
+                        </td>\
+                    </tr>';
+            }
+
+            $('#import_db_file_list').html(tbody);
+            $('input[name="upload_dir"]').val(upload_dir);
+
+            $("#import_db_file_list .del").on('click',function(){
+                var index = $(this).attr('index');
+                var filename = file_list[index]["name"];
+                myPost('delete_db_backup',{filename:filename,path:upload_dir},function(){
+                    showMsg('执行成功!', function(){
+                        getList();
+                    },{icon:1},2000);
+                });
+            });
+        });
+    }
+
+    var layerIndex = layer.open({
+        type: 1,
+        title: "从文件导入数据",
+        area: ['700px', '380px'],
+        closeBtn: 1,
+        shadeClose: false,
+        content: '<div class="pd15">\
+                    <div class="db_list">\
+                        <button id="btn_file_upload" class="btn btn-success btn-sm" type="button">从本地上传</button>\
+                    </div >\
+                    <div class="divtable">\
+                    <input type="hidden" name="upload_dir" value=""> \
+                    <div id="database_fix"  style="height:150px;overflow:auto;border:#ddd 1px solid">\
+                    <table class="table table-hover "style="border:none">\
+                        <thead>\
+                            <tr>\
+                                <th>文件名称</th>\
+                                <th>文件大小</th>\
+                                <th>备份时间</th>\
+                                <th style="text-align: right;">操作</th>\
+                            </tr>\
+                        </thead>\
+                        <tbody  id="import_db_file_list" class="gztr"></tbody>\
+                    </table>\
+                    </div>\
+                    <ul class="help-info-text c7">\
+                        <li>仅支持sql、zip、sql.gz、(tar.gz|gz|tgz)</li>\
+                        <li>zip、tar.gz压缩包结构：test.zip或test.tar.gz压缩包内，必需包含test.sql</li>\
+                        <li>若文件过大，您还可以使用SFTP工具，将数据库文件上传到/www/backup/import</li>\
+                    </ul>\
+                </div>\
+        </div>',
+        success:function(index){
+            $('#btn_file_upload').click(function(){
+                var upload_dir = $('input[name="upload_dir"]').val();
+                uploadDbFiles(upload_dir);
+            });
+
+            getList();
+        },
+    });
+
+    
+}
+
+function setBackup(db_name){
+    var layerIndex = layer.open({
+        type: 1,
+        title: "数据库备份详情",
+        area: ['700px', '280px'],
+        closeBtn: 1,
+        shadeClose: false,
+        content: '<div class="pd15">\
+                    <div class="db_list">\
+                        <button id="btn_backup" class="btn btn-success btn-sm" type="button">备份</button>\
+                        <button id="btn_local_import" class="btn btn-success btn-sm" type="button">外部导入</button>\
+                    </div >\
+                    <div class="divtable">\
+                    <div  id="database_fix"  style="height:150px;overflow:auto;border:#ddd 1px solid">\
+                    <table id="database_table" class="table table-hover "style="border:none">\
+                        <thead>\
+                            <tr>\
+                                <th>文件名称</th>\
+                                <th>文件大小</th>\
+                                <th>备份时间</th>\
+                                <th style="text-align: right;">操作</th>\
+                            </tr>\
+                        </thead>\
+                        <tbody class="list"></tbody>\
+                    </table>\
+                    </div>\
+                </div>\
+        </div>',
+        success:function(index){
+            $('#btn_backup').click(function(){
+                myPost('set_db_backup',{name:db_name}, function(data){
+                    showMsg('执行成功!', function(){
+                        setBackupReq(db_name);
+                    }, {icon:1}, 2000);
+                });
+            });
+
+            $('#btn_local_import').click(function(){
+                setLocalImport(db_name);
+            });
+
+            setBackupReq(db_name);
+        },
+    });
+}
+
+
+function setBackupReq(db_name, obj){
+     myPost('get_db_backup_list', {name:db_name}, function(data){
         var rdata = $.parseJSON(data.data);
         var tbody = '';
         for (var i = 0; i < rdata.data.length; i++) {
@@ -891,53 +1197,15 @@ function setBackup(db_name,obj){
                     <td><span> ' + rdata.data[i]['time'] + '</span></td>\
                     <td style="text-align: right;">\
                         <a class="btlink" onclick="importBackup(\'' + rdata.data[i]['name'] + '\',\'' +db_name+ '\')">导入</a> | \
+                        <a class="btlink" onclick="importBackupProgress(\'' + rdata.data[i]['name'] + '\',\'' +db_name+ '\')">导入进度</a> | \
                         <a class="btlink" onclick="downloadBackup(\'' + rdata.data[i]['file'] + '\')">下载</a> | \
                         <a class="btlink" onclick="delBackup(\'' + rdata.data[i]['name'] + '\',\'' +db_name+ '\')">删除</a>\
                     </td>\
                 </tr> ';
         }
-
-        var s = layer.open({
-            type: 1,
-            title: "数据库备份详情",
-            area: ['600px', '280px'],
-            closeBtn: 2,
-            shadeClose: false,
-            content: '<div class="pd15">\
-                        <div class="db_list">\
-                            <button id="btn_backup" class="btn btn-success btn-sm" type="button">备份</button>\
-                        </div >\
-                        <div class="divtable">\
-                        <div  id="database_fix"  style="height:150px;overflow:auto;border:#ddd 1px solid">\
-                        <table class="table table-hover "style="border:none">\
-                            <thead>\
-                                <tr>\
-                                    <th>文件名称</th>\
-                                    <th>文件大小</th>\
-                                    <th>备份时间</th>\
-                                    <th style="text-align: right;">操作</th>\
-                                </tr>\
-                            </thead>\
-                            <tbody class="gztr">' + tbody + '</tbody>\
-                        </table>\
-                        </div>\
-                    </div>\
-            </div>'
-        });
-
-        $('#btn_backup').click(function(){
-            myPost('set_db_backup',{name:db_name}, function(data){
-                layer.msg('执行成功!');
-
-                setTimeout(function(){
-                    layer.close(s);
-                    setBackup(db_name,obj);
-                },2000);
-            });
-        });
+        $('#database_table tbody').html(tbody);
     });
 }
-
 
 function dbList(page, search){
     var _data = {};
@@ -968,7 +1236,7 @@ function dbList(page, search){
             list += '<td><span class="c9 input-edit" onclick="setDbPs(\''+rdata.data[i]['id']+'\',\''+rdata.data[i]['name']+'\',this)" style="display: inline-block;">'+rdata.data[i]['ps']+'</span></td>';
             list += '<td style="text-align:right">';
 
-            list += '<a href="javascript:;" class="btlink" class="btlink" onclick="setBackup(\''+rdata.data[i]['name']+'\',this)" title="数据库备份">'+(rdata.data[i]['is_backup']?'备份':'未备份') +'</a> | ';
+            list += '<a href="javascript:;" class="btlink" class="btlink" onclick="setBackup(\''+rdata.data[i]['name']+'\',this)" title="数据库备份">'+(rdata.data[i]['is_backup']?'已备份':'未备份') +'</a> | ';
 
             var rw = '';
             var rw_change = 'all';
@@ -1004,6 +1272,7 @@ function dbList(page, search){
             <button onclick="setRootPwd(0,\''+rdata.info['root_pwd']+'\')" title="设置MySQL管理员密码" class="btn btn-default btn-sm" type="button" style="margin-right: 5px;">root密码</button>\
             <button onclick="openPhpmyadmin(\'\',\'root\',\''+rdata.info['root_pwd']+'\')" title="打开phpMyadmin" class="btn btn-default btn-sm" type="button" style="margin-right: 5px;">phpMyAdmin</button>\
             <button onclick="setDbAccess(\'root\')" title="ROOT权限" class="btn btn-default btn-sm" type="button" style="margin-right: 5px;">ROOT权限</button>\
+            <button onclick="fixDbAccess(\'root\')" title="修复" class="btn btn-default btn-sm" type="button" style="margin-right: 5px;">修复</button>\
             <span style="float:right">              \
                 <button batch="true" style="float: right;display: none;margin-left:10px;" onclick="delDbBatch();" title="删除选中项" class="btn btn-default btn-sm">删除选中</button>\
             </span>\
@@ -1047,6 +1316,147 @@ function dbList(page, search){
 }
 
 
+function myBinRollingLogs(_name, func, _args, line){
+
+    var file_line = 100;
+    if ( typeof(line) != 'undefined' ){
+        file_line = line;
+    }
+
+    var reqTimer = null;
+
+    function requestLogs(func,file,line){
+        myPostCallbakN(func,'',{'file':file,"line":line}, function(rdata){
+            var data = rdata.data.data;
+            var cmd = rdata.data.cmd;
+            if(data == '') {
+                data = '当前没有日志!';
+            }
+
+            $('#my_rolling_cmd').html(cmd);
+
+            $('#my_rolling_copy').click(function(){
+                copyText(cmd);
+            });
+
+            var ebody = '<textarea readonly="readonly" style="margin: 0px;width: 100%;height: 570px;background-color: #333;color:#fff; padding:0 5px" id="roll_info_log">'+data+'</textarea>';
+            $("#my_rolling_logs").html(ebody);
+            var ob = document.getElementById('roll_info_log');
+            ob.scrollTop = ob.scrollHeight;
+        });
+    }
+
+
+    layer.open({
+        type: 1,
+        title: _name + '日志',
+        area: ['800px','700px'],
+        end: function(){
+            if (reqTimer){
+                clearInterval(reqTimer);
+            }
+        },
+        content:'<div class="change-default" style="padding:0px 20px 0px;">\
+                    <div class="divtable mtb10">\
+                    <table class="table table-hover"><tr>\
+                    <td id="my_rolling_cmd">cmd</td>\
+                    <td id="my_rolling_copy" style="width:35px;"><span class="ico-copy cursor btcopy" title="复制密码"></span></td>\
+                    <tr>\
+                    </table>\
+                    </div>\
+                </div>\
+                <div class="change-default" style="padding:0px 20px 0px;" id="my_rolling_logs">\
+                    <textarea readonly="readonly" style="margin: 0px;width: 100%;height: 570px;background-color: #333;color:#fff; padding:0 5px" id="roll_info_log"></textarea>\
+                </div>',
+        success:function(){
+            var fileName = _args['file'];
+            requestLogs(func,fileName,file_line);
+            reqTimer = setInterval(function(){
+                requestLogs(func,fileName,file_line);
+            },1000);
+        }
+    });
+}
+
+function myBinLogsRender(page){
+    var _data = {};
+    if (typeof(page) =='undefined'){
+        var page = 1;
+    }
+    
+    _data['page'] = page;
+    _data['page_size'] = 10;
+    _data['tojs'] = 'myBinLogsRender';
+    myPost('binlog_list', _data, function(data){
+        var rdata = $.parseJSON(data.data);
+        // console.log(rdata);
+        var list = '';
+        for(i in rdata.data){
+            list += '<tr>';
+
+            list += '<td>' + rdata.data[i]['name'] +'</td>';
+            list += '<td>' + toSize(rdata.data[i]['size'])+'</td>';
+            list += '<td>' + rdata.data[i]['time'] +'</td>';
+            
+
+            list += '<td style="text-align:right">';
+            list += '<a href="javascript:;" data-index="'+i+'" class="btlink look" class="btlink">查看</a> | ';
+            list += '<a href="javascript:;" data-index="'+i+'" class="btlink look_decode" class="btlink">解码查看</a>';
+            list += '</td></tr>';
+        }
+
+        if (rdata.data.length ==0){
+            list = '<tr><td colspan="4">无数据</td</tr>';
+        }
+
+        $("#binlog_list tbody").html(list);
+        $('#binlog_page').html(rdata.page);
+
+
+        $('#binlog_list .look').click(function(){
+            var i = $(this).data('index');
+            var file = rdata.data[i]['name'];
+            myBinRollingLogs('查看BINLOG','binLogListLook',{'file':file },100);
+        });
+
+        $('#binlog_list .look_decode').click(function(){
+            var i = $(this).data('index');
+            var file = rdata.data[i]['name'];
+            myBinRollingLogs('查看解码BINLOG','binLogListLookDecode',{'file':file },100);
+        });
+    });
+}
+
+function myBinLogs(){
+    var con = '<div class="safe bgw">\
+            <button class="btn btn-success btn-sm relay_trace" type="button" style="margin-right: 5px;">中继日志跟踪</button>\
+            <button class="btn btn-default btn-sm binlog_trace" type="button" style="margin-right: 5px;">最新BINLOG日志跟踪</button>\
+            <div id="binlog_list" class="divtable mtb10">\
+                <div class="tablescroll">\
+                    <table class="table table-hover" width="100%" cellspacing="0" cellpadding="0" border="0" style="border: 0 none;">\
+                    <thead><tr>\
+                    <th>文件名称</th>\
+                    <th>大小</th>\
+                    <th>时间</th>\
+                    <th style="text-align:right;">操作</th>\
+                    </tr></thead>\
+                    <tbody></tbody></table>\
+                </div>\
+                <div id="binlog_page" class="dataTables_paginate paging_bootstrap page"></div>\
+            </div>\
+        </div>';
+    $(".soft-man-con").html(con);
+    myBinLogsRender(1);
+
+    $('.soft-man-con .relay_trace').click(function(){
+        myBinRollingLogs('中继日志跟踪','binLogListTraceRelay',{'file':''},100);
+    });
+
+    $('.soft-man-con .binlog_trace').click(function(){
+        myBinRollingLogs('最新BINLOG日志跟踪','binLogListTraceBinLog',{'file':''},100);
+    });
+}
+
 function myLogs(){
     
     myPost('bin_log', {status:1}, function(data){
@@ -1064,7 +1474,7 @@ function myLogs(){
                         <span class="f14 c6 mr20">二进制日志 </span><span class="f14 c6 mr20">' + toSize(rdata.msg) + '</span>\
                         '+line_status+'\
                         <p class="f14 c6 mtb10" style="border-top:#ddd 1px solid; padding:10px 0">错误日志<button class="btn btn-default btn-clear btn-xs" style="float:right;" >清理日志</button></p>\
-                        <textarea readonly style="margin: 0px;width: 100%;height: 440px;background-color: #333;color:#fff; padding:0 5px" id="error_log"></textarea>\
+                        <textarea readonly style="margin: 0px;width: 100%;height: 438px;background-color: #333;color:#fff; padding:0 5px" id="error_log"></textarea>\
                     </p>';
         $(".soft-man-con").html(limitCon);
 
@@ -1214,7 +1624,7 @@ function repTools(db_name, res){
             type: 1,
             title: "MySQL工具箱【" + db_name + "】",
             area: ['780px', '580px'],
-            closeBtn: 2,
+            closeBtn: 1,
             shadeClose: false,
             content: '<div class="pd15">\
                             <div class="db_list">\
@@ -1309,7 +1719,7 @@ function addMasterRepSlaveUser(){
         yes:function(index){
             var data = $("#add_master").serialize();
             data = decodeURIComponent(data);
-            var dataObj = str2Obj(data);
+            var dataObj = toArrayObject(data);
             if(!dataObj['address']){
                 dataObj['address'] = dataObj['dataAccess'];
             }
@@ -1329,7 +1739,7 @@ function addMasterRepSlaveUser(){
 
 
 
-function updateMasterRepSlaveUser(username){
+function updateMasterRepSlaveUser(username, password){
   
     var index = layer.open({
         type: 1,
@@ -1342,7 +1752,7 @@ function updateMasterRepSlaveUser(username){
             <div class='line'><span class='tname'>用户名</span><div class='info-r'><input name='username' readonly='readonly' class='bt-input-text mr5' placeholder='用户名' type='text' style='width:330px;' value='"+username+"'></div></div>\
             <div class='line'>\
             <span class='tname'>密码</span>\
-            <div class='info-r'><input class='bt-input-text mr5' type='text' name='password' id='MyPassword' style='width:330px' value='"+(randomStrPwd(16))+"' /><span title='随机密码' class='glyphicon glyphicon-repeat cursor' onclick='repeatPwd(16)'></span></div>\
+            <div class='info-r'><input class='bt-input-text mr5' type='text' name='password' id='MyPassword' style='width:330px' value='"+password+"' /><span title='随机密码' class='glyphicon glyphicon-repeat cursor' onclick='repeatPwd(16)'></span></div>\
             </div>\
             <input type='hidden' name='ps' value='' />\
             <div class='bt-form-submit-btn'>\
@@ -1354,7 +1764,7 @@ function updateMasterRepSlaveUser(username){
     $('#submit_update_master').click(function(){
         var data = $("#update_master").serialize();
         data = decodeURIComponent(data);
-        var dataObj = str2Obj(data);
+        var dataObj = toArrayObject(data);
         myPost('update_master_rep_slave_user', data, function(data){
             var rdata = $.parseJSON(data.data);
             showMsg(rdata.msg,function(){
@@ -1384,16 +1794,10 @@ function getMasterRepSlaveUserCmd(username, db=''){
             area: '500px',
             content:"<form class='bt-form pd20 pb70' id='add_master'>\
             <div class='line'>"+cmd+"</div>\
-            <div class='bt-form-submit-btn'>\
-                <button type='button' class='btn btn-success btn-sm btn-title class-copy-cmd'>复制</button>\
+            <div class='bt-form-submit-btn' style='text-align:center;'>\
+                <button type='button' class='btn btn-success btn-sm btn-title'>选择其中一个复制</button>\
             </div>\
           </form>",
-        });
-
-       
-        copyPass(cmd);
-        $('.class-copy-cmd').click(function(){
-            copyPass(cmd);
         });
     });
 }
@@ -1401,13 +1805,9 @@ function getMasterRepSlaveUserCmd(username, db=''){
 function delMasterRepSlaveUser(username){
     myPost('del_master_rep_slave_user', {username:username}, function(data){
         var rdata = $.parseJSON(data.data);
-        layer.msg(rdata.msg);
-
-        $('.layui-layer-close1').click();
-
-        setTimeout(function(){
+        showMsg(rdata.msg, function(){
             getMasterRepSlaveList();
-        },1000);
+        },{icon: rdata.status ? 1 : 2},1000)
     });
 }
 
@@ -1465,7 +1865,7 @@ function setDbMasterAccess(username){
             yes:function(index){
                 var data = $("#set_db_access").serialize();
                 data = decodeURIComponent(data);
-                var dataObj = str2Obj(data);
+                var dataObj = toArrayObject(data);
                 if(!dataObj['access']){
                     dataObj['access'] = dataObj['dataAccess'];
                     if ( dataObj['dataAccess'] == 'ip'){
@@ -1487,6 +1887,15 @@ function setDbMasterAccess(username){
         });
 
     });
+}
+
+
+function resetMaster(){
+    myPost('reset_master', '', function(data){
+        var rdata = $.parseJSON(data.data);
+        showMsg(rdata.msg,function(){
+        },{icon: rdata.status ? 1 : 2});   
+    },'正在执行重置master命令[reset master]');
 }
 
 function getMasterRepSlaveList(){
@@ -1511,10 +1920,11 @@ function getMasterRepSlaveList(){
         for (i in user_list) {
             // console.log(i);
             var name = user_list[i]['username'];
+            var password = user_list[i]['password'];
             list += '<tr><td>'+name+'</td>\
-                <td>'+user_list[i]['password']+'</td>\
+                <td>'+password+'</td>\
                 <td>\
-                    <a class="btlink" onclick="updateMasterRepSlaveUser(\''+name+'\');">修改</a> | \
+                    <a class="btlink" onclick="updateMasterRepSlaveUser(\''+name+'\',\''+password+'\');">修改</a> | \
                     <a class="btlink" onclick="delMasterRepSlaveUser(\''+name+'\');">删除</a> | \
                     <a class="btlink" onclick="setDbMasterAccess(\''+name+'\');">权限</a> | \
                     <a class="btlink" onclick="getMasterRepSlaveUserCmd(\''+name+'\');">从库同步命令</a>\
@@ -1551,12 +1961,12 @@ function getMasterRepSlaveListPage(){
 }
 
 
-function deleteSlave(){
-    myPost('delete_slave', {}, function(data){
+function deleteSlave(sign){
+    myPost('delete_slave', {sign:sign}, function(data){
         var rdata = $.parseJSON(data.data);
         showMsg(rdata['msg'], function(){
             masterOrSlaveConf();
-        },{},3000);
+        },{icon:rdata.status?1:2,time:3000},3000);
     });
 }
 
@@ -1564,28 +1974,100 @@ function deleteSlave(){
 function getFullSyncStatus(db){
     var timeId = null;
 
-    var btn = '<div class="table_toolbar" style="left:0px;"><span data-status="init" class="sync btn btn-default btn-sm" id="begin_full_sync" title="">开始</span></div>';
-    var loadOpen = layer.open({
-        type: 1,
-        title: '全量同步['+db+']',
-        area: '500px',
-        content:"<div class='bt-form pd20 c6'>\
-                 <div class='divtable mtb10'>\
-                    <span id='full_msg'></span>\
-                    <div class='progress'>\
-                        <div class='progress-bar' role='progressbar' aria-valuenow='0' aria-valuemin='0' aria-valuemax='100' style='min-width: 2em;'>0%</div>\
-                    </div>\
-                </div>\
-                "+btn+"\
-            </div>",
-        cancel: function(){ 
-            clearInterval(timeId);
+    myPost('get_slave_list', {page:1,page_size:100}, function(data){
+        var rdata = $.parseJSON(data.data);
+        var rsource = rdata.data;
+
+        if (db == 'ALL' && rsource.length>1){
+            layer.msg("多主不支持该模式!",{icon:2});
+            return;
         }
+
+        var dataSource = '';
+        if (rsource.length>1){
+            var sourceList = '';
+            for (var i = 0; i < rsource.length; i++) {
+                if ('Channel_Name' in rsource[i]){
+                    sourceList += '<option val="'+rsource[i]['Master_Host']+'">'+rsource[i]['Master_Host']+'</option>';
+                }
+            }
+
+            dataSource = "<p class='line' style='text-align:center;'>\
+                <span>同步数据源：</span>\
+                <select class='bt-input-text' name='data_source' style='width:200px;'>" + sourceList + "</select>\
+            </p>";
+        }
+
+        layer.open({
+            type: 1,
+            title: '全量同步['+db+']',
+            area: '500px',
+            content:"<div class='bt-form pd15'>\
+                     <div class='divtable mtb10'>\
+                        "+dataSource+"\
+                        <span id='full_msg'></span>\
+                        <div class='progress'>\
+                            <div class='progress-bar' role='progressbar' aria-valuenow='0' aria-valuemin='0' aria-valuemax='100' style='min-width: 2em;'>0%</div>\
+                        </div>\
+                    </div>\
+                    <div class='table_toolbar' style='left:0px;'>\
+                        <span data-status='init' class='sync btn btn-default btn-sm' id='begin_full_sync'>开始</span>\
+                        <span data-status='init' class='btn btn-default btn-sm' id='full_sync_cmd'>手动命令</span>\
+                    </div>\
+                </div>",
+            cancel: function(){ 
+                clearInterval(timeId);
+            },
+            success:function(){
+                $('#begin_full_sync').click(function(){
+                    var val = $(this).data('status');
+                    var sign = '';
+                    if (dataSource !=''){
+                        sign = $('select[name="data_source"]').val();
+                    }
+                    if (val == 'init'){
+                        fullSync(db, sign, 1);
+                        timeId = setInterval(function(){
+                            fullSync(db,sign,0);
+                        }, 1000);
+                        $(this).data('status','starting');
+                        $('#begin_full_sync').text("同步中");
+                    } else {
+                        layer.msg("正在同步中..",{icon:0});
+                    }
+                });
+
+                $('#full_sync_cmd').click(function(){
+                    myPostN('full_sync_cmd', {'db':db,'sign':''}, function(rdata){
+                        var rdata = $.parseJSON(rdata.data);
+                        layer.open({
+                            title: "手动执行命令CMD",
+                            area: ['600px', '180px'],
+                            type:1,
+                            closeBtn: 1,
+                            shadeClose: false,
+                            btn:["复制","取消"],
+                            content: '<div class="pd15">\
+                                        <div class="divtable">\
+                                            <pre class="layui-code">'+rdata.data+'</pre>\
+                                        </div>\
+                                    </div>',
+                            success:function(){
+                                copyText(rdata.data);
+                            },
+                            yes:function(){
+                                copyText(rdata.data);
+                            }
+                        });
+                    });
+                });
+            }
+        });
     });
 
-    function fullSync(db,begin){
+    function fullSync(db,sign,begin){
        
-        myPostN('full_sync', {db:db,begin:begin}, function(data){
+        myPostN('full_sync', {db:db,sign:sign,begin:begin}, function(data){
             var rdata = $.parseJSON(data.data);
             $('#full_msg').text(rdata['msg']);
             $('.progress-bar').css('width',rdata['progress']+'%');
@@ -1594,22 +2076,88 @@ function getFullSyncStatus(db){
             if (rdata['code']==6 ||rdata['code']<0){
                 layer.msg(rdata['msg']);
                 clearInterval(timeId);
+                $('#begin_full_sync').text("同步结束,再次同步?");
                 $("#begin_full_sync").attr('data-status','init');
             }
         });
     }
+}
 
-    $('#begin_full_sync').click(function(){
-        var val = $(this).attr('data-status');
-        if (val == 'init'){
-            fullSync(db,1);
-            timeId = setInterval(function(){
-                fullSync(db,0);
-            }, 1000);
-            $(this).attr('data-status','starting');
-        } else {
-            layer.msg("正在同步中..");
+function dataSyncVerify(db){
+    var reqTimer = null;
+
+    function requestLogs(layerIndex){
+        myPostN('sync_database_repair_log', {db:db, sign:'',op:'get'}, function(rdata){
+            var rdata = $.parseJSON(rdata.data);
+
+            if(!rdata.status) {
+                layer.close(layerIndex);
+                layer.msg(rdata.msg,{icon:2, time:2000});
+                clearInterval(reqTimer);
+                return;
+            };
+
+            if (rdata.msg == ''){
+                rdata.msg = '暂无数据!';
+            }
+
+            $("#data_verify_log").html(rdata.msg);
+            //滚动到最低
+            var ob = document.getElementById('data_verify_log');
+            ob.scrollTop = ob.scrollHeight; 
+        });
+    }
+
+    layer.open({
+        type: 1,
+        title: '同步数据库['+db+']数据校验',
+        area: '500px',
+        btn:[ "开始","取消","手动"],
+        content:"<div class='bt-form'>\
+                "+'<pre id="data_verify_log" style="overflow: auto; border: 0px none; line-height:23px;padding: 5px; margin: 0px; white-space: pre-wrap; height: 395px; background-color: rgb(51,51,51);color:#f1f1f1;border-radius:0px;font-family:"></pre>'+"\
+            </div>",
+        cancel: function(){
+            if (reqTimer){
+                clearInterval(reqTimer);
+            }
+        },
+        yes:function(index,layer_index){
+            myPostN('sync_database_repair_log', {db:db, sign:'',op:'do'}, function(data){});
+            layer.msg("执行成功");
+
+            requestLogs(layer_index);
+            reqTimer = setInterval(function(){
+                requestLogs(layer_index);
+            },3000);
+        },
+        success:function(){
+        },
+        btn3: function(){
+            myPostN('sync_database_repair_log', {db:db, sign:'',op:'cmd'}, function(rdata){
+                var rdata = $.parseJSON(rdata.data);
+                layer.open({
+                title: "手动执行命令CMD",
+                    area: ['600px', '180px'],
+                    type:1,
+                    closeBtn: 1,
+                    shadeClose: false,
+                    btn:["复制","取消"],
+                    content: '<div class="pd15">\
+                                <div class="divtable">\
+                                    <pre class="layui-code">'+rdata.data+'</pre>\
+                                </div>\
+                            </div>',
+                    success:function(){
+                        copyText(rdata.data);
+                    },
+                    yes:function(){
+                        copyText(rdata.data);
+                    }
+                });
+            });
+            return false;
         }
+
     });
 }
 
@@ -1677,8 +2225,23 @@ function addSlaveSSH(ip=''){
 function delSlaveSSH(ip){
     myPost('del_slave_ssh', {ip:ip}, function(rdata){
         var rdata = $.parseJSON(rdata.data);
-        layer.msg(rdata.msg, {icon: rdata.status ? 1 : 2});
-        getSlaveSSHPage();
+        showMsg(rdata.msg,function(){
+            if (rdata.status){
+                getSlaveSSHPage();
+            }
+        },{icon: rdata.status ? 1 : 2}, 600);
+    });
+}
+
+
+function delSlaveSyncUser(ip){
+    myPost('del_slave_sync_user', {ip:ip}, function(rdata){
+        var rdata = $.parseJSON(rdata.data);
+        showMsg(rdata.msg,function(){
+            if (rdata.status){
+                getSlaveSyncUserPage();
+            }
+        },{icon: rdata.status ? 1 : 2}, 600);
     });
 }
 
@@ -1728,6 +2291,260 @@ function getSlaveSSHPage(page=1){
 }
 
 
+
+function addSlaveSyncUser(ip=''){
+
+    myPost('get_slave_sync_user_by_ip', {ip:ip}, function(rdata){
+        
+        var rdata = $.parseJSON(rdata.data);
+
+        var ip = '127.0.0.1';
+        var port = "22";
+        var cmd = '';
+        var user = 'input_sync_user';
+        var pass = 'input_sync_pwd';
+        var mode = '0';
+
+        if (rdata.data.length>0){
+            ip = rdata.data[0]['ip'];
+            port = rdata.data[0]['port'];
+            cmd = rdata.data[0]['cmd'];
+            user = rdata.data[0]['user'];
+            pass = rdata.data[0]['pass'];
+            mode = rdata.data[0]['mode'];
+        }
+
+        var index = layer.open({
+            type: 1,
+            area: ['500px','510px'],
+            title: '同步账户',
+            closeBtn: 1,
+            shift: 5,
+            shadeClose: true,
+            btn:["确认","取消"],
+            content: "<form class='bt-form pd20'>\
+                <div class='line'><span class='tname'>IP</span><div class='info-r'><input name='ip' class='bt-input-text mr5' type='text' style='width:330px;' value='"+ip+"'></div></div>\
+                <div class='line'><span class='tname'>端口</span><div class='info-r'><input name='port' class='bt-input-text mr5' type='number' style='width:330px;' value='"+port+"'></div></div>\
+                <div class='line'><span class='tname'>同步账户</span><div class='info-r'><input name='user' class='bt-input-text mr5' type='text' style='width:330px;' value='"+user+"'></div></div>\
+                <div class='line'><span class='tname'>同步密码</span><div class='info-r'><input name='pass' class='bt-input-text mr5' type='text' style='width:330px;' value='"+pass+"'></div></div>\
+                <div class='line'>\
+                    <span class='tname'>同步模式</span>\
+                    <div class='info-r'>\
+                        <select class='bt-input-text mr5' name='mode'>\
+                            <option value='0' "+( mode == '0' ? 'selected="selected"' : '')+">经典</option>\
+                            <option value='1' "+( mode == '1' ? 'selected="selected"' : '')+">GTID</option>\
+                        </select>\
+                    </div>\
+                </div>\
+                <div class='line'>\
+                <span class='tname'>CMD[必填]</span>\
+                <div class='info-r'><textarea class='bt-input-text mr5' row='20' cols='30' name='cmd' style='width:330px;height:150px;'></textarea></div>\
+                </div>\
+                <input type='hidden' name='mode' value='"+mode+"' />\
+              </form>",
+            success:function(){
+                $('textarea[name="cmd"]').html(cmd);
+                $('textarea[name="cmd"]').change(function(){
+                    var val = $(this).val();
+                    val = val.replace(';','');
+                    var a = {};
+                    if (val.toLowerCase().indexOf('for')>0){
+                        cmd_tmp = val.split('for');
+                        val = cmd_tmp[0].trim();
+
+                        const channel_str = cmd_tmp[1].trim();
+                        const ch_reg = /channel \'(.*)\';/;
+                        var match_val = channel_str.match(ch_reg);
+                        if (match_val.length>1){
+                            a['channel'] = match_val[1];
+                        }
+                    }
+
+                    var vlist = val.split(',');
+                    for (var i in vlist) {
+                        var tmp = toTrim(vlist[i]);
+                        var tmp_a = tmp.split(" ");
+                        var real_tmp = tmp_a[tmp_a.length-1];
+                        var kv = real_tmp.split("=");
+                        a[kv[0]] = kv[1].replace("'",'').replace("'",'');
+                    }
+
+                    if ('MASTER_HOST' in a){
+                        $('input[name="ip"]').val(a['MASTER_HOST']);
+                        $('input[name="port"]').val(a['MASTER_PORT']);
+                        $('input[name="user"]').val(a['MASTER_USER']);
+                        $('input[name="pass"]').val(a['MASTER_PASSWORD']);
+                    } else {
+                        $('input[name="ip"]').val(a['SOURCE_HOST']);
+                        $('input[name="port"]').val(a['SOURCE_PORT']);
+                        $('input[name="user"]').val(a['SOURCE_USER']);
+                        $('input[name="pass"]').val(a['SOURCE_PASSWORD']);
+                    }
+                });
+            },
+            yes:function(index){
+                var ip = $('input[name="ip"]').val();
+                var port = $('input[name="port"]').val();
+                var user = $('input[name="user"]').val();
+                var pass = $('input[name="pass"]').val();
+                var cmd = $('textarea[name="cmd"]').val();
+                var mode = $('select[name="mode"]').val();
+
+                var data = {ip:ip,port:port,cmd:cmd,user:user,pass:pass,mode:mode};
+                myPost('add_slave_sync_user', data, function(ret_data){
+                    layer.close(index);
+                    var rdata = $.parseJSON(ret_data.data);
+                    showMsg(rdata.msg,function(){
+                        if (rdata.status){
+                            getSlaveSyncUserPage();
+                        }
+                    },{icon: rdata.status ? 1 : 2},600);
+                });
+            }
+        });
+    });
+}
+
+function getSlaveSyncUserPage(page=1){
+    var _data = {};    
+    _data['page'] = page;
+    _data['page_size'] = 5;
+    _data['tojs'] ='getSlaveSyncUserPage';
+    myPost('get_slave_sync_user_list', _data, function(data){
+        var layerId = null;
+        var rdata = [];
+        try {
+            rdata = $.parseJSON(data.data);
+        } catch(e) {
+            console.log(e);
+        }
+
+        var list = '';
+        var user_list = rdata['data'];
+        for (i in user_list) {
+            var ip = user_list[i]['ip'];
+            var port = user_list[i]['port'];
+            var user = user_list[i]['user'];
+            var apass = user_list[i]['pass'];
+            
+            var cmd = '未设置';
+            if (user_list[i]['cmd']!=''){
+                cmd = '已设置';
+            }
+
+            list += '<tr><td>'+ip+'</td>\
+                <td>'+port+'</td>\
+                <td>'+user+'</td>\
+                <td>'+apass+'</td>\
+                <td>'+cmd+'</td>\
+                <td>\
+                    <a class="btlink" onclick="addSlaveSyncUser(\''+ip+'\');">修改</a> | \
+                    <a class="btlink" onclick="delSlaveSyncUser(\''+ip+'\');">删除</a>\
+                </td>\
+            </tr>';
+        }
+
+        $('.get-slave-ssh-list tbody').html(list);
+        $('.dataTables_paginate_4').html(rdata['page']);
+    });
+}
+
+function getSlaveCfg(){
+
+    myPost('get_slave_sync_mode', '', function(data){
+        var rdata = $.parseJSON(data.data);
+        var mode_none = 'success';
+        var mode_ssh = 'danger';
+        var mode_sync_user = 'danger';
+        if(rdata.status){
+            var mode_none = 'danger';
+            if (rdata.data == 'ssh'){
+                var mode_ssh = 'success';
+                var mode_sync_user = 'danger';
+            } else {
+                var mode_ssh = 'danger';
+                var mode_sync_user = 'success';
+            }
+        }
+
+        layerId = layer.open({
+            type: 1,
+            title: '同步配置',
+            area: ['400px','180px'],
+            content:"<div class='bt-form pd20 c6'>\
+                    <p class='conf_p'>\
+                        <span class='f14 c6 mr20'>当前从库同步模式</span>\
+                        <b class='f14 c6 mr20'></b>\
+                        <button class='btn btn-"+mode_none+" btn-xs slave-db-mode btn-none'>无</button>\
+                        <button class='btn btn-"+mode_ssh+" btn-xs slave-db-mode btn-ssh'>SSH</button>\
+                        <button class='btn btn-"+mode_sync_user+" btn-xs slave-db-mode btn-sync-user'>同步账户</button>\
+                    </p>\
+                    <hr />\
+                    <p class='conf_p'>\
+                        <span class='f14 c6 mr20'>配置设置</span>\
+                        <b class='f14 c6 mr20'></b>\
+                        <button class='btn btn-success btn-xs btn-slave-ssh'>SSH</button>\
+                        <button class='btn btn-success btn-xs btn-slave-user'>同步账户</button>\
+                    </p>\
+                </div>",
+            success:function(){
+                $('.btn-slave-ssh').click(function(){
+                    getSlaveSSHList();
+                });
+
+                $('.btn-slave-user').click(function(){
+                    getSlaveUserList();
+                });
+
+                $('.slave-db-mode').click(function(){
+                    var _this = this;
+                    var mode = 'none';
+                    if ($(this).hasClass('btn-ssh')){
+                        mode = 'ssh';
+                    }
+                    if ($(this).hasClass('btn-sync-user')){
+                        mode = 'sync-user';
+                    }
+
+                    myPost('set_slave_sync_mode', {mode:mode}, function(data){
+                        var rdata = $.parseJSON(data.data);
+                        showMsg(rdata.msg,function(){
+                            $('.slave-db-mode').remove('btn-success').addClass('btn-danger');
+                            $(_this).removeClass('btn-danger').addClass('btn-success');
+                        },{icon:rdata.status?1:2},2000);
+                    });
+
+                });
+            }
+        });
+    });
+}
+
+
+function getSlaveUserList(){
+
+    var page = '<div class="dataTables_paginate_4 dataTables_paginate paging_bootstrap page" style="margin-top:0px;"></div>';
+    page += '<div class="table_toolbar" style="left:0px;"><span class="sync btn btn-default btn-sm" onclick="addSlaveSyncUser()" title="">添加同步账户</span></div>';
+
+    layerId = layer.open({
+        type: 1,
+        title: '同步账户列表',
+        area: '600px',
+        content:"<div class='bt-form pd20 c6'>\
+                 <div class='divtable mtb10'>\
+                    <div><table class='table table-hover get-slave-ssh-list'>\
+                        <thead><tr><th>IP</th><th>PORT</th><th>同步账户</th><th>同步密码</th><th>CMD</th><th>操作</th></tr></thead>\
+                        <tbody></tbody>\
+                    </table></div>\
+                    "+page +"\
+                </div>\
+            </div>",
+        success:function(){
+            getSlaveSyncUserPage(1);
+        }
+    });
+}
+
 function getSlaveSSHList(page=1){
 
     var page = '<div class="dataTables_paginate_4 dataTables_paginate paging_bootstrap page" style="margin-top:0px;"></div>';
@@ -1736,7 +2553,7 @@ function getSlaveSSHList(page=1){
     layerId = layer.open({
         type: 1,
         title: 'SSH列表',
-        area: '500px',
+        area: '600px',
         content:"<div class='bt-form pd20 c6'>\
                  <div class='divtable mtb10'>\
                     <div><table class='table table-hover get-slave-ssh-list'>\
@@ -1840,30 +2657,62 @@ function masterOrSlaveConf(version=''){
         
         _data['page'] = page;
         _data['page_size'] = 10;
+        var mdb_ver = $('.plugin_version').attr('version');
 
         myPost('get_slave_list', _data, function(data){
             var rdata = $.parseJSON(data.data);
             var list = '';
+
+            var isHasSign = false;
             for(i in rdata.data){
 
                 var v = rdata.data[i];
-                var status = "异常";
-                if (v['Slave_SQL_Running'] == 'Yes' && v['Slave_IO_Running'] == 'Yes'){
-                    status = "正常";
+                if ('Channel_Name' in v && v['Channel_Name'] !=''){
+                    isHasSign = true;
                 }
 
-                list += '<tr>';
-                list += '<td>' + rdata.data[i]['Master_Host'] +'</td>';
-                list += '<td>' + rdata.data[i]['Master_Port'] +'</td>';
-                list += '<td>' + rdata.data[i]['Master_User'] +'</td>';
-                list += '<td>' + rdata.data[i]['Master_Log_File'] +'</td>';
-                list += '<td>' + rdata.data[i]['Slave_IO_Running'] +'</td>';
-                list += '<td>' + rdata.data[i]['Slave_SQL_Running'] +'</td>';
+                var status = "<a data-id="+i+"  class='btlink db_error'>异常</>";
+                if (mdb_ver >= 8){
+                    if (v['Replica_SQL_Running'] == 'Yes' && v['Replica_IO_Running'] == 'Yes'){
+                        status = "正常";
+                    }
+
+                    list += '<tr>';
+                    list += '<td>' + rdata.data[i]['Source_Host'] +'</td>';
+                    list += '<td>' + rdata.data[i]['Source_Port'] +'</td>';
+                    list += '<td>' + rdata.data[i]['Source_User'] +'</td>';
+                    list += '<td>' + rdata.data[i]['Relay_Source_Log_File'] +'</td>';
+                    list += '<td>' + rdata.data[i]['Replica_IO_Running'] +'</td>';
+                    list += '<td>' + rdata.data[i]['Replica_SQL_Running'] +'</td>';
+
+                } else {
+                    if (v['Slave_SQL_Running'] == 'Yes' && v['Slave_IO_Running'] == 'Yes'){
+                        status = "正常";
+                    }
+
+                    list += '<tr>';
+                    list += '<td>' + rdata.data[i]['Master_Host'] +'</td>';
+                    list += '<td>' + rdata.data[i]['Master_Port'] +'</td>';
+                    list += '<td>' + rdata.data[i]['Master_User'] +'</td>';
+                    list += '<td>' + rdata.data[i]['Master_Log_File'] +'</td>';
+                    list += '<td>' + rdata.data[i]['Slave_IO_Running'] +'</td>';
+                    list += '<td>' + rdata.data[i]['Slave_SQL_Running'] +'</td>';
+                }
+
+                if (isHasSign){
+                    list += '<td>' + v['Channel_Name'] +'</td>';
+                }
+
                 list += '<td>' + status +'</td>';
                 list += '<td style="text-align:right">' + 
-                    '<a href="javascript:;" class="btlink" onclick="deleteSlave()" title="删除">删除</a>' +
+                    '<a data-id="'+i+'" href="javascript:;" class="btlink btn_delete_slave" title="删除">删除</a>' +
                 '</td>';
                 list += '</tr>';
+            }
+
+            var signThead_th = '';
+            if (isHasSign){
+                var signThead_th = '<th>标识</th>';
             }
 
             var con = '<div class="divtable mtb10">\
@@ -1876,6 +2725,7 @@ function masterOrSlaveConf(version=''){
                         <th>日志</th>\
                         <th>IO</th>\
                         <th>SQL</th>\
+                        '+signThead_th+'\
                         <th>状态</th>\
                         <th style="text-align:right;">操作</th></tr></thead>\
                         <tbody>\
@@ -1889,6 +2739,101 @@ function masterOrSlaveConf(version=''){
             //     <span class="sync btn btn-default btn-sm" onclick="getMasterRepSlaveList()" title="">添加</span>\
             // </div>
             $(".table_slave_status_list").html(con);
+
+            $(".btn_delete_slave").click(function(){
+                var id = $(this).data('id');
+                var v = rdata.data[id];
+                if ('Channel_Name' in v){
+                    deleteSlave(v['Channel_Name']);
+                } else{
+                    deleteSlave();
+                }
+            });
+
+             $('.db_error').click(function(){
+                var id = $(this).data('id');
+                var info = rdata.data[id];
+
+                var err_line = "";
+                err_line +="<tr>\
+                    <td>IO错误</td>\
+                    <td>"+ (info['Last_IO_Error'] == '' ? '无':info['Last_IO_Error'])+"</td>\
+                </tr>";
+                err_line +="<tr>\
+                    <td>SQL错误</td>\
+                    <td>"+(info['Last_SQL_Error'] == '' ? '无':info['Last_SQL_Error'])+"</td>\
+                </tr>";
+
+                err_line +="<tr>\
+                    <td>状态</td>\
+                    <td>"+(info['Slave_SQL_Running_State'] == '' ? '无':info['Slave_SQL_Running_State']) +"</td>\
+                </tr>";
+
+
+                var btn_list = ['复制错误',"取消"];
+                if (info['Last_IO_Error'].search(/1236/i)>0){
+                    btn_list = ['复制错误',"取消","尝试修复"];
+                }
+                layer.open({
+                    type: 1,
+                    title: '同步异常信息',
+                    area: ['600px','300px'],
+                    btn:btn_list,
+                    content:"<form class='bt-form pd15'>\
+                        <div class='divtable mtb10'>\
+                        <div class='tablescroll'>\
+                            <table class='table table-hover' width='100%' cellspacing='0' cellpadding='0' border='0' style='border: 0 none;'>\
+                            <thead><tr>\
+                                <th style='width:80px;'>类型</th>\
+                                <th>内容</th>\
+                            </tr></thead>\
+                            <tbody>"+ err_line +"</tbody>\
+                            </table>\
+                        </div>\
+                    </div>\
+                    </form>",
+                    success:function(){
+                        if (info['Last_IO_Error'] != ''){
+                            copyText(info['Last_IO_Error']);
+                            return;
+                        }
+
+                        if (info['Last_SQL_Error'] != ''){
+                            copyText(info['Last_SQL_Error']);
+                            return;
+                        }
+
+                        if (info['Slave_SQL_Running_State'] != ''){
+                            copyText(info['Slave_SQL_Running_State']);
+                            return;
+                        }
+                    },
+                    yes:function(){
+                        if (info['Last_IO_Error'] != ''){
+                            copyText(info['Last_IO_Error']);
+                            return;
+                        }
+
+                        if (info['Last_SQL_Error'] != ''){
+                            copyText(info['Last_SQL_Error']);
+                            return;
+                        }
+
+                        if (info['Slave_SQL_Running_State'] != ''){
+                            copyText(info['Slave_SQL_Running_State']);
+                            return;
+                        }
+                    },
+                    btn3:function(){
+                        myPost('try_slave_sync_bugfix', {}, function(data){
+                            var rdata = $.parseJSON(data.data);
+                            showMsg(rdata.msg, function(){
+                                masterOrSlaveConf();
+                            },{ icon: rdata.status ? 1 : 5 },2000);
+                        });
+                    }
+                });
+            });
         });
     }
 
@@ -1908,7 +2853,8 @@ function masterOrSlaveConf(version=''){
                 list += '<td>' + rdata.data[i]['name'] +'</td>';
                 list += '<td style="text-align:right">' + 
                     '<a href="javascript:;" class="btlink" onclick="setDbSlave(\''+rdata.data[i]['name']+'\')"  title="加入|退出">'+(rdata.data[i]['slave']?'退出':'加入')+'</a> | ' +
-                    '<a href="javascript:;" class="btlink" onclick="getFullSyncStatus(\''+rdata.data[i]['name']+'\')" title="同步">同步</a>' +
+                    '<a href="javascript:;" class="btlink" onclick="getFullSyncStatus(\''+rdata.data[i]['name']+'\')" title="同步">同步</a> | ' +
+                    '<a href="javascript:;" class="btlink" onclick="dataSyncVerify(\''+rdata.data[i]['name']+'\')" title="数据校验">数据校验</a>' +
                 '</td>';
                 list += '</tr>';
             }
@@ -1935,12 +2881,16 @@ function masterOrSlaveConf(version=''){
         });
     }
 
-   
 
     function getMasterStatus(){
-        myPost('get_master_status', '', function(data){
-            var rdata = $.parseJSON(data.data);
+        myPost('get_master_status', '', function(rdata){
+            var rdata = $.parseJSON(rdata.data);
             // console.log('mode:',rdata.data);
+            if ( typeof(rdata.status) != 'undefined' && !rdata.status && rdata.data == 'pwd'){
+                layer.msg(rdata.msg, {icon:2});
+                return;
+            }
+
             var rdata = rdata.data;
             var limitCon = '\
                 <p class="conf_p">\
@@ -1952,6 +2902,7 @@ function masterOrSlaveConf(version=''){
                 <p class="conf_p">\
                     <span class="f14 c6 mr20">Master[主]配置</span><span class="f14 c6 mr20"></span>\
                     <button class="btn '+(!rdata.status ? 'btn-danger' : 'btn-success')+' btn-xs btn-master">'+(!rdata.status ? '未开启' : '已开启') +'</button>\
+                    <button class="btn btn-success btn-xs" onclick="resetMaster()">重置</button>\
                 </p>\
                 <hr/>\
                 <!-- master list -->\
@@ -1961,7 +2912,7 @@ function masterOrSlaveConf(version=''){
                 <p class="conf_p">\
                     <span class="f14 c6 mr20">Slave[从]配置</span><span class="f14 c6 mr20"></span>\
                     <button class="btn '+(!rdata.slave_status ? 'btn-danger' : 'btn-success')+' btn-xs btn-slave">'+(!rdata.slave_status ? '未启动' : '已启动') +'</button>\
-                    <button class="btn btn-success btn-xs" onclick="getSlaveSSHList()" >[主]SSH配置</button>\
+                    <button class="btn btn-success btn-xs" onclick="getSlaveCfg()" >同步配置</button>\
                     <button class="btn btn-success btn-xs" onclick="initSlaveStatus()" >初始化</button>\
                 </p>\
                 <hr/>\
@@ -2035,10 +2986,10 @@ function masterOrSlaveConf(version=''){
                 getMasterDbList();
             }
             
-            if (rdata.slave_status){
+            // if (rdata.slave_status){
                 getAsyncMasterDbList();
                 getAsyncDataList()
-            }
+            // }
         });
     }
     getMasterStatus();

@@ -7,11 +7,12 @@ rootPath=$(dirname "$curPath")
 rootPath=$(dirname "$rootPath")
 serverPath=$(dirname "$rootPath")
 
-
-install_tmp=${rootPath}/tmp/mw_install.pl
+# cd /www/server/mdserver-web/plugins/postgresql && bash install.sh install 16
 
 action=$1
 type=$2
+
+VERSION=(${type//./ })
 
 pip install psycopg2-binary
 if [ -f ${rootPath}/bin/activate ];then
@@ -21,12 +22,12 @@ fi
 
 
 if [ "${2}" == "" ];then
-	echo '缺少安装脚本...' > $install_tmp
+	echo '缺少安装脚本...'
 	exit 0
 fi 
 
-if [ ! -d $curPath/versions/$2 ];then
-	echo '缺少安装脚本2...' > $install_tmp
+if [ ! -d $curPath/versions/$VERSION ];then
+	echo '缺少安装脚本2...'
 	exit 0
 fi
 
@@ -40,7 +41,7 @@ if [ "${action}" == "uninstall" ];then
 	fi
 fi
 
-sh -x $curPath/versions/$2/install.sh $1
+sh -x $curPath/versions/$VERSION/install.sh $1
 
 if [ "${action}" == "install" ] && [ -d $serverPath/postgresql ];then
 	#初始化 
